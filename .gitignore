@@ -1,31 +1,49 @@
-.DS_Store
-Thumbs.db
-*.swp
-.vscode/
-.idea/
-.env
-.env.local
-*.pem
-*.key
-node_modules/
-dist/
-.cache/
-coverage/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
 .venv/
 venv/
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-htmlcov/
-.coverage
-**/.terraform/
-*.tfstate
-*.tfstate.backup
-*.tfvars
-!*.tfvars.example
+env/
+*.egg
+pip-wheel-metadata/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Data
+/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker
+.dockerignore
+
+# Logs
 *.log
 logs/
-sbom/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Grafana
+grafana/data/
+
+# Prometheus
+prometheus_data/

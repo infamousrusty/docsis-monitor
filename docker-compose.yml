@@ -1,0 +1,140 @@
+version: "3.9"
+
+networks:
+  docsis_net:
+    driver: bridge
+
+volumes:
+  db_data:
+  grafana_data:
+  prometheus_data:
+
+services:
+
+  # ── Backend API + Polling Engine ─────────────────────────────────────────
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: docsis-app
+    restart: unless-stopped
+    environment:
+      - ROUTER_IP=${ROUTER_IP:-192.168.100.1}
+      - ROUTER_SCHEME=${ROUTER_SCHEME:-http}
+      - POLL_INTERVAL=${POLL_INTERVAL:-30}
+      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-10}
+      - REQUEST_RETRIES=${REQUEST_RETRIES:-3}
+      - SNR_WARN_DB=${SNR_WARN_DB:-33.0}
+      - SNR_CRIT_DB=${SNR_CRIT_DB:-30.0}
+      - DS_POWER_MIN=${DS_POWER_MIN:--7.0}
+      - DS_POWER_MAX=${DS_POWER_MAX:-7.0}
+      - US_POWER_MIN=${US_POWER_MIN:-38.0}
+      - US_POWER_MAX=${US_POWER_MAX:-48.5}
+      - UNCORRECTABLE_WARN=${UNCORRECTABLE_WARN:-100}
+      - UNCORRECTABLE_CRIT=${UNCORRECTABLE_CRIT:-500}
+      - T3_T4_CRIT_COUNT=${T3_T4_CRIT_COUNT:-1}
+      - WEBHOOK_URLS=${WEBHOOK_URLS:-}
+      - ALERT_DEBOUNCE_SECONDS=${ALERT_DEBOUNCE_SECONDS:-300}
+      - DB_PATH=/data/docsis.db
+      - DATA_RETENTION_DAYS=${DATA_RETENTION_DAYS:-90}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-false}
+      - BASIC_AUTH_USER=${BASIC_AUTH_USER:-}
+      - BASIC_AUTH_PASS=${BASIC_AUTH_PASS:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_TO=${SMTP_TO:-}
+    volumes:
+      - db_data:/data
+    networks:
+      - docsis_net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+  # ── Frontend (nginx static) ───────────────────────────────────────────────
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: docsis-web
+    restart: unless-stopped
+    networks:
+      - docsis_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Reverse Proxy ─────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: docsis-nginx
+    restart: unless-stopped
+    ports:
+      - "${EXPOSE_PORT:-3000}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      - app
+      - web
+    networks:
+      - docsis_net
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Prometheus ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.54.0
+    container_name: docsis-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=90d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - docsis_net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Grafana ───────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: docsis-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASS:-docsis-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - docsis_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

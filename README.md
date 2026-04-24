@@ -1,74 +1,79 @@
-# hello-world
+# DOCSIS Monitor
 
-A minimal, production-grade boilerplate for containerised applications
-with supply chain security built in.
+Production-grade self-hosted monitoring stack for the **Virgin Media SuperHub 5** (DOCSIS 3.0/3.1).
 
-A GitHub template repository providing a ready-to-use foundation with:
+## Features
 
-- Immutable image builds — tagged by commit SHA, pushed to GHCR
-- Keyless cosign signing — OIDC via Sigstore/Fulcio, recorded in Rekor
-- SLSA provenance attestation — provenance: mode=max via BuildKit
-- SBOM generation — attached as OCI layer at build time
-- Dependabot — weekly Actions update PRs
+- Polls Hub 5 CGI endpoints every 30 s (configurable)
+- Parses downstream/upstream channel metrics, event logs, WAN status
+- Multi-page web dashboard: Overview · Downstream · Upstream · Logs · Diagnostics
+- Alert engine with debouncing — Slack, Discord, custom webhook, SMTP
+- Historical trend graphs (Chart.js) — SNR, power, uncorrectables
+- Prometheus `/metrics` endpoint + Grafana provisioned dashboard
+- SQLite persistence with configurable retention (default 90 days)
+- Fully Dockerised — compatible with Portainer
 
----
+## Quick Start
 
-## Using This Template
+```bash
+git clone https://github.com/infamousrusty/docsis-monitor.git
+cd docsis-monitor
+cp .env.example .env
+# Edit .env — set ROUTER_IP and optionally WEBHOOK_URLS
+docker compose up -d
+```
 
-1. Click Use this template -> Create a new repository
-2. Clone your new repo
-3. Replace .devcontainer/Dockerfile with your own
-4. Push to main — the pipeline runs automatically
+Open **http://localhost:3000** (or `EXPOSE_PORT` you set).
 
----
+## Services
 
-## Repository Structure
+| Service | Port (internal) | Purpose |
+|---|---|---|
+| `app` | 8000 | FastAPI backend + polling engine |
+| `web` | 80 | Static frontend (nginx) |
+| `nginx` | `EXPOSE_PORT` (3000) | Reverse proxy, rate limiting |
+| `prometheus` | 9090 | Metrics scraping |
+| `grafana` | 3000 (internal) | `/grafana` sub-path |
 
-.
-├── .devcontainer/
-│   └── Dockerfile                  # Container definition
-├── .github/
-│   ├── dependabot.yml              # Weekly Actions update PRs
-│   └── workflows/
-│       └── build-sign-attest.yml   # Build, Sign & Attest pipeline
-├── LICENSE
-└── README.md
+## Alert Thresholds (defaults)
 
----
+| Metric | Warning | Critical |
+|---|---|---|
+| DS SNR | < 33 dB | < 30 dB |
+| DS Power | outside −7…+7 dBmV | — |
+| US Power | outside 38…48.5 dBmV | — |
+| Uncorrectables | > 100 | > 500 |
+| T3/T4 Timeouts | — | ≥ 1 |
 
-## CI/CD Pipeline
+All thresholds are overridable via `.env`.
 
-Runs on every push to main and on v* tags.
+## Webhook Payload Example
 
-Step              | Action                               | Output
-------------------|--------------------------------------|----------------------------------------
-Checkout          | actions/checkout@v4                  | Source on runner
-Build & Push      | docker/build-push-action@v6          | Image at ghcr.io/<repo>:<sha>
-Sign              | cosign sign                          | Keyless signature in GHCR + Rekor
-Attest            | actions/attest-build-provenance@v3   | SLSA provenance
-Summary           | Bash                                 | Build summary in Actions UI
+```json
+{
+  "source": "docsis-monitor",
+  "router_ip": "192.168.100.1",
+  "polled_at": "2026-04-24T20:00:00Z",
+  "alert_count": 1,
+  "alerts": [
+    { "id": 42, "severity": "critical", "message": "DS ch5 SNR 28.3 dB" }
+  ],
+  "wan_ip": "1.2.3.4",
+  "router_up": true
+}
+```
 
----
+## Environment Variables
 
-## Verifying an Image
+See [`.env.example`](.env.example) for the full annotated reference.
 
-cosign verify \
-  --certificate-identity-regexp="https://github.com/infamousrusty/hello-world/.*" \
-  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  ghcr.io/infamousrusty/hello-world@sha256:<digest>
+## Router Mode vs Modem Mode
 
----
-
-## Customising
-
-File                                       | What to change
--------------------------------------------|--------------------------------
-.devcontainer/Dockerfile                   | Your application container
-.github/workflows/build-sign-attest.yml    | Tags, platforms, extra steps
-.github/dependabot.yml                     | Schedule, labels, PR limits
-
----
+| Mode | Default IP | Notes |
+|---|---|---|
+| Modem/bridge | `192.168.100.1` | Set `ROUTER_IP=192.168.100.1` |
+| Router mode | `192.168.0.1` | Set `ROUTER_IP=192.168.0.1` |
 
 ## License
 
-MIT (c) Anton-Curtis Cooper / Infamous
+MIT — see [LICENSE](LICENSE).

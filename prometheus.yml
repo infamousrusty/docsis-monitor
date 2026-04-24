@@ -2,8 +2,12 @@ global:
   scrape_interval: 30s
   evaluation_interval: 30s
 
+rule_files: []
+
 scrape_configs:
   - job_name: docsis-monitor
     static_configs:
       - targets: ['app:8000']
     metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s

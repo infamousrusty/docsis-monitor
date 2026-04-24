@@ -1,0 +1,92 @@
+name: Bug Report
+description: Report a reproducible bug
+title: "fix: "
+labels: ["bug", "needs-triage"]
+
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: Clear, concise description of the issue
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What breaks? Who/what is affected? (users, system, security, performance)
+      placeholder: |
+        - Affects login flow
+        - Causes API failures under load
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal reproducible steps (include environment if relevant)
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behaviour
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version / Commit SHA / Release Tag
+      description: Exact version where issue occurs
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Runtime context (OS, browser, container, infra, config)
+      placeholder: |
+        - OS:
+        - Runtime:
+        - Deployment:
+        - Feature flags:
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Stack Trace
+      render: shell
+      description: Include relevant logs (redact secrets)
+
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Security Considerations
+      options:
+        - label: This bug may have security implications (auth, data leakage, injection, etc.)
+        - label: I have verified no secrets or sensitive data are included in this report
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: I have searched existing issues — this is not a duplicate.
+          required: true

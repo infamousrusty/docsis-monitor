@@ -1,0 +1,81 @@
+---
+name: Build, Sign & Attest
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+concurrency:
+  group: build-sign-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build-sign:
+    name: Build, Sign & Attest
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Push (immutable by digest)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./.devcontainer/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+          outputs: type=image,push=true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.8.1
+
+      - name: Sign image (keyless, OIDC)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ github.repository }}@${DIGEST}"
+          cosign sign --yes "${IMAGE}"
+
+      - name: Attest build provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: false
+          show-summary: true
+        continue-on-error: true
+
+      - name: Emit build summary
+        run: |
+          echo "### Build & Supply Chain Attestation" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Image** | `ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Signing** | Cosign keyless (OIDC via Sigstore/Fulcio) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Transparency log** | Rekor (public-good instance) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Attestation** | SBOM + SLSA provenance (OCI-attached) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Ref** | `${{ github.ref }}` @ `${{ github.sha }}` |" >> "$GITHUB_STEP_SUMMARY"

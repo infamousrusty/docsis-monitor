@@ -1,0 +1,105 @@
+---
+name: ADR — Validate
+
+on:
+  push:
+    paths:
+      - "docs/adr/*.md"
+      - "docs/adr/**/*.md"
+  pull_request:
+    paths:
+      - "docs/adr/*.md"
+      - "docs/adr/**/*.md"
+
+concurrency:
+  # One ADR validation per ref, cancel stale runs
+  group: adr-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate ADRs
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate ADR naming
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ERRORS=0
+          FOUND=0
+
+          shopt -s nullglob
+
+          for f in docs/adr/*.md docs/adr/**/*.md; do
+            FOUND=1
+            fn=$(basename "$f")
+
+            [[ "$fn" == "TEMPLATE.md" || "$fn" == "README.md" ]] && continue
+
+            if ! echo "$fn" | grep -qE '^[0-9]{4}-[a-z0-9-]+\.md$'; then
+              echo "❌ Invalid ADR filename: $fn (expected: NNNN-short-title.md)"
+              ERRORS=$((ERRORS+1))
+            fi
+          done
+
+          if [[ "$FOUND" -eq 0 ]]; then
+            echo "ℹ️ No ADR files found"
+            exit 0
+          fi
+
+          if [[ "$ERRORS" -gt 0 ]]; then
+            exit 1
+          fi
+
+          echo "✅ All ADR filenames valid"
+
+      - name: Validate required sections
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ERRORS=0
+          FOUND=0
+
+          shopt -s nullglob
+
+          REQUIRED_SECTIONS=(
+            "## Status"
+            "## Context"
+            "## Decision"
+            "## Consequences"
+          )
+
+          for f in docs/adr/*.md docs/adr/**/*.md; do
+            FOUND=1
+            fn=$(basename "$f")
+
+            [[ "$fn" == "TEMPLATE.md" || "$fn" == "README.md" ]] && continue
+
+            for section in "${REQUIRED_SECTIONS[@]}"; do
+              if ! grep -qF "$section" "$f"; then
+                echo "❌ Missing '$section' in $fn"
+                ERRORS=$((ERRORS+1))
+              fi
+            done
+          done
+
+          if [[ "$FOUND" -eq 0 ]]; then
+            echo "ℹ️ No ADR files found"
+            exit 0
+          fi
+
+          if [[ "$ERRORS" -gt 0 ]]; then
+            exit 1
+          fi
+
+          echo "✅ All ADRs have required sections"

@@ -1,0 +1,10 @@
+* text=auto eol=lf
+*.sh     text eol=lf
+Makefile text eol=lf
+*.png    binary
+*.jpg    binary
+*.gz     binary
+*.tar    binary
+*.zip    binary
+docs/**  linguist-documentation
+*.md     linguist-documentation

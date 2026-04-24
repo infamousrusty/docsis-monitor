@@ -1,0 +1,29 @@
+---
+ci:
+  - changed-files:
+      - any-glob-to-any-file: [".github/**", "Makefile", "scripts/**"]
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ["docs/**", "*.md"]
+
+security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".gitleaks.toml"
+          - ".github/SECURITY.md"
+          - ".github/workflows/codeql.yml"
+          - ".github/workflows/gitleaks.yml"
+          - ".github/workflows/slsa.yml"
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file: ["pyproject.toml", "requirements*.txt", "package.json"]
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file: ["tests/**"]
+
+infrastructure:
+  - changed-files:
+      - any-glob-to-any-file: [".devcontainer/**"]

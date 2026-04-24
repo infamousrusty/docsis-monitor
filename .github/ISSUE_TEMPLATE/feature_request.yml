@@ -1,0 +1,65 @@
+name: Feature Request
+description: Suggest a new feature
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem are we solving? Who experiences it?
+      placeholder: |
+        - Current limitation:
+        - Who is affected:
+        - Why it matters:
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: User / System Impact
+      description: Describe the value or improvement this feature provides
+      placeholder: |
+        - Improves:
+        - Enables:
+        - Reduces:
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe your preferred implementation approach
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Other approaches or workarounds evaluated
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints / Dependencies
+      description: Technical, security, performance, or architectural limitations
+      placeholder: |
+        - Must remain backwards compatible
+        - Must not introduce new external dependencies
+        - Performance considerations:
+
+  - type: textarea
+    id: breaking
+    attributes:
+      label: Breaking Changes
+      description: Would this require API, config, or behaviour changes?
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: I have searched existing issues — this is not a duplicate.
+          required: true

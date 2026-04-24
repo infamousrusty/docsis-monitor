@@ -1,0 +1,25 @@
+# Global fallback
+*                               @infamousrusty
+
+# CI/CD & platform
+.github/                        @infamous-sec
+.github/workflows/              @infamous-sec
+Makefile                        @infamous-sec
+scripts/                        @infamous-sec
+.devcontainer/                  @infamous-sec
+
+# Security-critical — security team must approve
+.gitleaks.toml                  @infamous-sec
+.github/SECURITY.md             @infamous-sec
+.github/workflows/codeql.yml    @infamous-sec
+.github/workflows/gitleaks.yml  @infamous-sec
+.github/workflows/slsa.yml      @infamous-sec
+
+# Documentation
+docs/                           @infamousrusty
+README.md                       @infamousrusty
+CONTRIBUTING.md                 @infamousrusty
+
+# Application source
+src/                            @infamousrusty
+tests/                          @infamousrusty

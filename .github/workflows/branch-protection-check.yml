@@ -1,0 +1,75 @@
+---
+name: Branch Protection — Compliance Check
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  # Prevent overlapping compliance scans
+  group: branch-protection-compliance
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Verify Branch Protection
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq gh
+
+      - name: Verify branch protection policy
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_BRANCH_CHECK }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          echo "Checking branch protection for: main"
+
+          RESULT=$(gh api "repos/${REPO}/branches/main/protection")
+
+          # Safe defaults
+          REVIEWS=$(echo "$RESULT" | jq -r '.required_pull_request_reviews.required_approving_review_count // 0')
+          SIGNED=$(echo "$RESULT" | jq -r '.required_signatures.enabled // false')
+          LINEAR=$(echo "$RESULT" | jq -r '.required_linear_history.enabled // false')
+
+          PASS=true
+
+          if [[ "$REVIEWS" -lt 1 ]]; then
+            echo "❌ Require ≥1 approval review"
+            PASS=false
+          fi
+
+          if [[ "$SIGNED" != "true" ]]; then
+            echo "❌ Signed commits not required"
+            PASS=false
+          fi
+
+          if [[ "$LINEAR" != "true" ]]; then
+            echo "❌ Linear history not enforced"
+            PASS=false
+          fi
+
+          if [[ "$PASS" == "false" ]]; then
+            echo "Branch protection NON-COMPLIANT"
+            exit 1
+          fi
+
+          echo "✅ Branch protection compliant"
+
+      - name: Emit compliance summary
+        run: |
+          echo "### Branch Protection Compliance" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Review required: ≥1" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Signed commits: enforced" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Linear history: enforced" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: PASS" >> "$GITHUB_STEP_SUMMARY"

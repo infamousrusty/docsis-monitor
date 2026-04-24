@@ -1,0 +1,75 @@
+---
+name: Dependency Review
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  # One evaluation per PR; cancel stale updates
+  group: dep-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  changes:
+    name: Detect Dependency Changes
+    runs-on: ubuntu-24.04
+    outputs:
+      deps: ${{ steps.filter.outputs.deps }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Path filter (dependency manifests + lockfiles)
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          filters: |
+            deps:
+              # Python
+              - 'requirements*.txt'
+              - 'poetry.lock'
+              - 'pyproject.toml'
+
+              # Node
+              - 'package.json'
+              - 'package-lock.json'
+              - 'yarn.lock'
+              - 'pnpm-lock.yaml'
+
+              # Containers
+              - 'Dockerfile'
+              - '**/Dockerfile*'
+
+              # GitHub Actions (supply chain risk)
+              - '.github/workflows/**'
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-24.04
+    needs: changes
+
+    # Only run when dependencies actually changed
+    if: needs.changes.outputs.deps == 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+          # Licence policy
+          allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
+
+          # Always annotate PR
+          comment-summary-in-pr: always
+
+          # Stronger supply-chain controls
+          fail-on-scopes: runtime

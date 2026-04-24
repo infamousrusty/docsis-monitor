@@ -1,0 +1,30 @@
+name: DCO — Sign-off Check (Auto)
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: dco-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  pull-requests: write
+  statuses: write
+
+jobs:
+  dco:
+    name: DCO validation (required)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: dco-org/dco-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Emit status summary
+        if: always()
+        run: |
+          echo "### DCO Compliance" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Signed-off-by required: enforced" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: see PR checks for result" >> "$GITHUB_STEP_SUMMARY"

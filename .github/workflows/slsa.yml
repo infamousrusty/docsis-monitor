@@ -1,0 +1,108 @@
+---
+name: SLSA — Provenance & SBOM
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+
+concurrency:
+  # One release per tag; never cancel in-progress releases
+  group: slsa-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+  packages: write
+
+jobs:
+  build:
+    name: Build and push image
+    runs-on: ubuntu-24.04
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate semver tag
+        run: |
+          if ! [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid tag format"
+            exit 1
+          fi
+
+      - name: Build and push (immutable + signed provenance)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .devcontainer/Dockerfile
+
+          push: true
+
+          # Immutable + versioned tagging
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+
+          # Remove mutable "latest" (supply chain risk)
+          # latest can be reintroduced ONLY via promotion workflow
+
+          provenance: true
+          sbom: true
+
+          # Reproducibility + caching
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+          # Harden build
+          pull: true
+          no-cache-filters: |
+            base
+
+  provenance:
+    name: SLSA provenance (Level 3 generator)
+    needs: build
+
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.0.0
+
+    with:
+      image: ghcr.io/${{ github.repository }}
+      digest: ${{ needs.build.outputs.digest }}
+
+    secrets:
+      registry-username: ${{ github.actor }}
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+  sbom:
+    name: CycloneDX SBOM
+    runs-on: ubuntu-24.04
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate SBOM (Trivy pinned)
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          scan-type: fs
+          format: cyclonedx
+          output: sbom.cdx.json
+
+      - name: Verify SBOM generated
+        run: |
+          test -s sbom.cdx.json || (echo "SBOM missing" && exit 1)
+
+      - name: Attach SBOM to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sbom.cdx.json

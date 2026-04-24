@@ -1,0 +1,38 @@
+---
+name: Release — Semantic Versioning
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  # Ensure single release flow at a time
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release:
+    name: Semantic Release (release-please)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run release-please
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release-type: simple
+
+          # Optional hardening (recommended for controlled release flows)
+          include-component-in-tag: false
+          bump-minor-pre-major: true
+          bump-patch-for-minor-pre-major: true

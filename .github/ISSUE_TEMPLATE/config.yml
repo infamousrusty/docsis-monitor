@@ -1,0 +1,19 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Security Vulnerability (Private Reporting)
+    url: ../../security/advisories/new
+    about: |
+      Report exploitable security issues via GitHub Private Vulnerability Reporting.
+      Do NOT disclose vulnerabilities in public issues.
+
+  - name: Documentation
+    url: https://your-org.github.io/your-repo/
+    about: |
+      Read the documentation before opening an issue.
+      Covers setup, usage, architecture, and troubleshooting.
+
+  - name: Support / Discussions
+    url: https://github.com/your-org/your-repo/discussions
+    about: |
+      Use Discussions for questions, ideas, and non-actionable support requests.

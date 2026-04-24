@@ -1,0 +1,95 @@
+---
+name: Docs — MkDocs Material
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+
+  pull_request:
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+
+  workflow_dispatch:
+
+concurrency:
+  # Prevent overlapping docs builds + deployments
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  changes:
+    name: Detect Docs Changes
+    runs-on: ubuntu-24.04
+    outputs:
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Path filter
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          filters: |
+            docs:
+              - 'docs/**'
+              - 'mkdocs.yml'
+
+  build:
+    name: Build MkDocs
+    runs-on: ubuntu-24.04
+    needs: changes
+
+    # Only build when docs actually change OR manual trigger
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.docs == 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install mkdocs-material \
+                      mkdocs-git-revision-date-localized-plugin
+
+      - name: Build documentation (strict)
+        run: mkdocs build --strict
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-24.04
+    needs: build
+
+    # Only deploy on main branch
+    if: github.ref == 'refs/heads/main'
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

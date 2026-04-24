@@ -1,0 +1,36 @@
+title = "Gitleaks — Repository Secret Scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "custom-api-key"
+description = "Custom API key pattern"
+regex = '''(?i)(api[_-]?key|apikey)[\\s=:]+['"` ]?([a-zA-Z0-9]{32,})['"` ]?'''
+entropy = 3.5
+tags = ["api", "key"]
+
+[[rules]]
+id = "custom-jwt"
+description = "JWT token"
+regex = '''eyJ[a-zA-Z0-9_-]{10,}.[a-zA-Z0-9_-]{10,}.[a-zA-Z0-9_-]{10,}'''
+tags = ["jwt"]
+
+[[rules]]
+id = "vault-token"
+description = "HashiCorp Vault token"
+regex = '''(?i)vault[_-]?token[s=:]+['"` ]?([a-zA-Z0-9._-]{30,})['"` ]?'''
+tags = ["vault"]
+
+[allowlist]
+description = "Global allowlist"
+regexes = [
+  "REPLACE_ME",
+  "change-me-in-production",
+  "your-secret-here",
+]
+paths = [
+  ".env.example",
+  "CHANGELOG.md",
+  "docs/",
+]

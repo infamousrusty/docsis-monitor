@@ -1,0 +1,101 @@
+---
+name: CD — Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [staging, production]
+      image_tag:
+        description: Image tag to deploy
+        required: false
+
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+concurrency:
+  # Prevent cross-env collisions + allow parallel staging/prod
+  group: deploy-${{ inputs.environment || 'production' }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-24.04
+    outputs:
+      platform: ${{ steps.filter.outputs.platform }}
+      app: ${{ steps.filter.outputs.app }}
+      any: ${{ steps.filter.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Path filter
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          filters: |
+            platform:
+              - '.github/**'
+              - 'Makefile'
+              - 'scripts/**'
+              - '.devcontainer/**'
+            app:
+              - 'src/**'
+              - 'tests/**'
+            any:
+              - '**'
+
+  deploy:
+    name: Deploy to ${{ inputs.environment || 'production' }}
+    runs-on: ubuntu-24.04
+    needs: changes
+
+    # Always deploy on tags; otherwise require relevant changes
+    if: |
+      startsWith(github.ref, 'refs/tags/') ||
+      needs.changes.outputs.app == 'true' ||
+      needs.changes.outputs.platform == 'true'
+
+    environment:
+      name: ${{ inputs.environment || 'production' }}
+      url: https://your-app.example.com
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine image tag
+        id: tag
+        run: echo "tag=${{ inputs.image_tag || github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- Deployment implementation placeholder ---
+      # Replace with your actual method:
+      # - kubectl apply / helm upgrade
+      # - docker service update
+      # - ssh + compose pull/up
+      # ---------------------------------------------
+
+      - name: Deployment summary
+        run: |
+          echo "### Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Environment | ${{ inputs.environment || 'production' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Image tag | ${{ steps.tag.outputs.tag }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Actor | ${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"

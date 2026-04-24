@@ -1,0 +1,65 @@
+---
+name: Gitleaks — Secret Scanning
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  # Prevent duplicate scans per ref; cancel stale PR runs
+  group: gitleaks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-24.04
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Path filter (broad, but skips docs-only)
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          filters: |
+            relevant:
+              - '**'
+              - '!docs/**'
+              - '!README.md'
+              - '!CONTRIBUTING.md'
+
+  gitleaks:
+    name: Scan for secrets
+    runs-on: ubuntu-24.04
+    needs: changes
+
+    # Always run on schedule/manual; otherwise skip only if clearly docs-only
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.relevant == 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_SUMMARY: true

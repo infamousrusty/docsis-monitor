@@ -11,39 +11,47 @@ build/
 .venv/
 venv/
 env/
-*.egg
 pip-wheel-metadata/
+*.egg
 
-# Env
+# Environment
 .env
-.env.*
 !.env.example
 
-# Data
-/data/
+# SQLite
 *.db
 *.sqlite
 *.sqlite3
 
+# Data volumes
+data/
+
 # Docker
-.dockerignore
+.docker/
 
-# Logs
-*.log
-logs/
-
-# OS
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
 Thumbs.db
 
-# Editor
-.idea/
-.vscode/
-*.swp
-*.swo
+# Logs
+logs/
+*.log
 
 # Grafana
 grafana/data/
 
 # Prometheus
-prometheus_data/
+prometheus/data/
+
+# Node (if tooling added)
+node_modules/
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/

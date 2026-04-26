@@ -57,17 +57,17 @@ All images published by this repository are signed and can be independently veri
 Verify cosign signature:
 
   cosign verify \
-    --certificate-identity-regexp="https://github.com/infamousrusty/hello-world/.*" \
+    --certificate-identity-regexp="https://github.com/infamousrusty/docsis-monitor/.*" \
     --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-    ghcr.io/infamousrusty/hello-world@sha256:<digest>
+    ghcr.io/infamousrusty/docsis-monitor@sha256:<digest>
 
 Inspect SBOM attestation:
 
   cosign download attestation \
-    ghcr.io/infamousrusty/hello-world@sha256:<digest> | jq .
+    ghcr.io/infamousrusty/docsis-monitor@sha256:<digest> | jq .
 
 Verify GitHub build provenance:
 
   gh attestation verify \
     --owner infamousrusty \
-    oci://ghcr.io/infamousrusty/hello-world@sha256:<digest>
+    oci://ghcr.io/infamousrusty/docsis-monitor@sha256:<digest>

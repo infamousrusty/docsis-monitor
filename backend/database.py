@@ -1,7 +1,9 @@
-import aiosqlite
 from datetime import datetime, timedelta
-from config import settings
+
+import aiosqlite
 import structlog
+
+from config import settings
 
 log = structlog.get_logger()
 DB_PATH = settings.DB_PATH
@@ -84,7 +86,9 @@ async def init_db():
 
 
 async def purge_old_data():
-    cutoff = (datetime.utcnow() - timedelta(days=settings.DATA_RETENTION_DAYS)).isoformat() + "Z"
+    cutoff = (
+        datetime.utcnow() - timedelta(days=settings.DATA_RETENTION_DAYS)
+    ).isoformat() + "Z"
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM poll_snapshots WHERE ts < ?", (cutoff,))
         await db.commit()

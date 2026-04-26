@@ -1,4 +1,3 @@
-"""Derived health analysis over recent polling history."""
 import aiosqlite
 
 
@@ -22,11 +21,13 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
         diags["summary"] = "UNKNOWN"
         return diags
 
-    ph = ",".join("?" * len(snap_ids))
+    # Use a fixed-length parameterised placeholder — length comes from
+    # our own DB query, never from user input, so S608 is a false positive here.
+    ph = ",".join(["?"] * len(snap_ids))  # noqa: S608
 
-    # SNR per channel over recent window
+    # SNR per channel
     async with db.execute(
-        f"""SELECT channel_id, AVG(snr_db), MIN(snr_db), MAX(snr_db)
+        f"""SELECT channel_id, AVG(snr_db), MIN(snr_db), MAX(snr_db)  -- noqa: S608
             FROM downstream_channels
             WHERE snapshot_id IN ({ph}) AND snr_db IS NOT NULL
             GROUP BY channel_id""",
@@ -43,12 +44,12 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
                     "channel_id": cid,
                     "metric": "snr_db",
                     "avg": round(avg_s, 2),
-                    "detail": f"Channel {cid} avg SNR {avg_s:.1f} dB — degraded signal",
+                    "detail": f"Channel {cid} avg SNR {avg_s:.1f} dB — degraded",
                 })
 
-    # Power spread / channel imbalance
+    # Power spread / imbalance
     async with db.execute(
-        f"""SELECT channel_id, AVG(power_dbmv), MIN(power_dbmv), MAX(power_dbmv)
+        f"""SELECT channel_id, AVG(power_dbmv), MIN(power_dbmv), MAX(power_dbmv)  -- noqa: S608
             FROM downstream_channels
             WHERE snapshot_id IN ({ph}) AND power_dbmv IS NOT NULL
             GROUP BY channel_id""",
@@ -71,12 +72,14 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
         diags["channel_imbalance"] = {
             "spread_dbmv": round(spread, 2),
             "flagged": spread > 6.0,
-            "detail": f"Power spread across {len(powers)} DS channels: {spread:.1f} dBmV",
+            "detail": (
+                f"Power spread across {len(powers)} DS channels: {spread:.1f} dBmV"
+            ),
         }
 
-    # Cumulative uncorrectables over window
+    # Uncorrectables
     async with db.execute(
-        f"""SELECT channel_id, SUM(uncorrectables)
+        f"""SELECT channel_id, SUM(uncorrectables)  -- noqa: S608
             FROM downstream_channels
             WHERE snapshot_id IN ({ph})
             GROUP BY channel_id HAVING SUM(uncorrectables) > 0
@@ -90,9 +93,9 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
                 "detail": f"Channel {cid}: {total} uncorrectables in last 20 polls",
             })
 
-    # T3/T4 ranging faults
+    # T3/T4
     async with db.execute(
-        f"""SELECT channel_id, SUM(t3_timeouts), SUM(t4_timeouts)
+        f"""SELECT channel_id, SUM(t3_timeouts), SUM(t4_timeouts)  -- noqa: S608
             FROM upstream_channels
             WHERE snapshot_id IN ({ph})
             GROUP BY channel_id
@@ -104,10 +107,10 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
                 "channel_id": cid,
                 "t3_total": t3,
                 "t4_total": t4,
-                "detail": f"US ch{cid}: T3={t3} T4={t4} — upstream ranging instability",
+                "detail": f"US ch{cid}: T3={t3} T4={t4} — ranging instability",
             })
 
-    # Overall summary
+    # Summary
     if diags["t3t4_warnings"]:
         diags["summary"] = "CRITICAL"
     elif diags["signal_instability"] or (
@@ -120,20 +123,30 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
     return diags
 
 
-async def get_history(db: aiosqlite.Connection, metric: str, hours: int = 24) -> list[dict]:
+async def get_history(
+    db: aiosqlite.Connection, metric: str, hours: int = 24
+) -> list[dict]:
     query_map = {
-        "snr": """SELECT s.ts, d.channel_id, d.snr_db AS value
-                  FROM downstream_channels d JOIN poll_snapshots s ON s.id=d.snapshot_id
-                  WHERE s.ts >= datetime('now',?) ORDER BY s.ts, d.channel_id""",
-        "ds_power": """SELECT s.ts, d.channel_id, d.power_dbmv AS value
-                       FROM downstream_channels d JOIN poll_snapshots s ON s.id=d.snapshot_id
-                       WHERE s.ts >= datetime('now',?) ORDER BY s.ts, d.channel_id""",
-        "us_power": """SELECT s.ts, u.channel_id, u.power_dbmv AS value
-                       FROM upstream_channels u JOIN poll_snapshots s ON s.id=u.snapshot_id
-                       WHERE s.ts >= datetime('now',?) ORDER BY s.ts, u.channel_id""",
-        "uncorrectables": """SELECT s.ts, d.channel_id, d.uncorrectables AS value
-                             FROM downstream_channels d JOIN poll_snapshots s ON s.id=d.snapshot_id
-                             WHERE s.ts >= datetime('now',?) ORDER BY s.ts, d.channel_id""",
+        "snr": (
+            "SELECT s.ts, d.channel_id, d.snr_db AS value"
+            " FROM downstream_channels d JOIN poll_snapshots s ON s.id=d.snapshot_id"
+            " WHERE s.ts >= datetime('now',?) ORDER BY s.ts, d.channel_id"
+        ),
+        "ds_power": (
+            "SELECT s.ts, d.channel_id, d.power_dbmv AS value"
+            " FROM downstream_channels d JOIN poll_snapshots s ON s.id=d.snapshot_id"
+            " WHERE s.ts >= datetime('now',?) ORDER BY s.ts, d.channel_id"
+        ),
+        "us_power": (
+            "SELECT s.ts, u.channel_id, u.power_dbmv AS value"
+            " FROM upstream_channels u JOIN poll_snapshots s ON s.id=u.snapshot_id"
+            " WHERE s.ts >= datetime('now',?) ORDER BY s.ts, u.channel_id"
+        ),
+        "uncorrectables": (
+            "SELECT s.ts, d.channel_id, d.uncorrectables AS value"
+            " FROM downstream_channels d JOIN poll_snapshots s ON s.id=d.snapshot_id"
+            " WHERE s.ts >= datetime('now',?) ORDER BY s.ts, d.channel_id"
+        ),
     }
     sql = query_map.get(metric)
     if not sql:

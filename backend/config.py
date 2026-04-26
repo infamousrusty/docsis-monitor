@@ -1,5 +1,7 @@
-from pydantic_settings import BaseSettings
 from typing import Optional
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -9,8 +11,8 @@ class Settings(BaseSettings):
     POLL_INTERVAL: int = 30
     REQUEST_TIMEOUT: int = 10
     REQUEST_RETRIES: int = 3
-    ROUTER_USER: Optional[str] = None
-    ROUTER_PASS: Optional[str] = None
+    ROUTER_USER: str | None = None
+    ROUTER_PASS: str | None = None
 
     # Thresholds
     SNR_WARN_DB: float = 33.0
@@ -26,11 +28,11 @@ class Settings(BaseSettings):
     # Alerting
     WEBHOOK_URLS: str = ""
     ALERT_DEBOUNCE_SECONDS: int = 300
-    SMTP_HOST: Optional[str] = None
+    SMTP_HOST: str | None = None
     SMTP_PORT: int = 587
-    SMTP_USER: Optional[str] = None
-    SMTP_PASS: Optional[str] = None
-    SMTP_TO: Optional[str] = None
+    SMTP_USER: str | None = None
+    SMTP_PASS: str | None = None
+    SMTP_TO: str | None = None
     SMTP_FROM: str = "docsis-monitor@localhost"
 
     # Storage
@@ -40,8 +42,8 @@ class Settings(BaseSettings):
     # App
     LOG_LEVEL: str = "INFO"
     DEBUG: bool = False
-    BASIC_AUTH_USER: Optional[str] = None
-    BASIC_AUTH_PASS: Optional[str] = None
+    BASIC_AUTH_USER: str | None = None
+    BASIC_AUTH_PASS: str | None = None
 
     @property
     def webhook_list(self) -> list[str]:
@@ -53,8 +55,7 @@ class Settings(BaseSettings):
     def router_base_url(self) -> str:
         return f"{self.ROUTER_SCHEME}://{self.ROUTER_IP}"
 
-    class Config:
-        env_file = ".env"
+    model_config = {"env_file": ".env"}
 
 
 settings = Settings()

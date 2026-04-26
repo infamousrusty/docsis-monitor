@@ -1,6 +1,6 @@
 """
 Hub 5 scraper — handles both router mode (192.168.0.1) and modem mode (192.168.100.1).
-Endpoints discovered via community reverse engineering of VM Hub 5 firmware.
+Endpoints discovered via community reverse engineering of VM firmware.
 Gracefully degrades if any endpoint is unavailable.
 """
 import asyncio
@@ -11,30 +11,31 @@ from typing import Optional
 import httpx
 from bs4 import BeautifulSoup
 from tenacity import (
-    retry, stop_after_attempt, wait_exponential,
+    retry,
     retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
 )
-import structlog
 
 from config import settings
-from models import RouterSnapshot, DownstreamChannel, UpstreamChannel, EventLogEntry
+from models import DownstreamChannel, EventLogEntry, RouterSnapshot, UpstreamChannel
 
-log = structlog.get_logger()
+log = __import__("structlog").get_logger()
 
-# Discovered Hub 5 CGI endpoints (modem + router mode)
 EP_DOWNSTREAM = "/cgi-bin/VmRouterStatusDownstreamCfgCgi"
 EP_UPSTREAM   = "/cgi-bin/VmRouterStatusUpstreamCfgCgi"
 EP_EVENT_LOG  = "/cgi-bin/VmRouterEventLogCgi"
 EP_WAN        = "/cgi-bin/VmRouterStatusWanCgi"
+EP_STATUS     = "/cgi-bin/VmRouterStatusCgi"
 
 
 def _make_client() -> httpx.AsyncClient:
-    kwargs: dict = dict(
-        base_url=settings.router_base_url,
-        timeout=settings.REQUEST_TIMEOUT,
-        follow_redirects=True,
-        headers={"User-Agent": "DOCSIS-Monitor/1.0"},
-    )
+    kwargs = {
+        "base_url": settings.router_base_url,
+        "timeout": settings.REQUEST_TIMEOUT,
+        "follow_redirects": True,
+        "headers": {"User-Agent": "DOCSIS-Monitor/1.0"},
+    }
     if settings.ROUTER_USER and settings.ROUTER_PASS:
         kwargs["auth"] = (settings.ROUTER_USER, settings.ROUTER_PASS)
     return httpx.AsyncClient(**kwargs)
@@ -46,7 +47,7 @@ def _make_client() -> httpx.AsyncClient:
     retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException)),
     reraise=False,
 )
-async def _fetch(client: httpx.AsyncClient, path: str) -> Optional[str]:
+async def _fetch(client: httpx.AsyncClient, path: str) -> str | None:
     try:
         resp = await client.get(path)
         resp.raise_for_status()
@@ -71,14 +72,14 @@ def _col_values(soup: BeautifulSoup, label: str) -> list[str]:
     return [c.get_text(strip=True) for c in cells[1:]]
 
 
-def _sf(val: str) -> Optional[float]:
+def _sf(val: str) -> float | None:
     try:
         return float(val.replace("N/A", "").strip())
     except (ValueError, AttributeError):
         return None
 
 
-def _si(val: str) -> Optional[int]:
+def _si(val: str) -> int | None:
     try:
         return int(val.replace("N/A", "").strip())
     except (ValueError, AttributeError):
@@ -99,7 +100,7 @@ def parse_downstream(html: str) -> list[DownstreamChannel]:
     locks      = _col_values(soup, "Lock Status")
     corrected  = _col_values(soup, "Corrected") or _col_values(soup, "Pre RS Errors")
     uncorrect  = _col_values(soup, "Uncorrectables") or _col_values(soup, "Post RS Errors")
-    chan_types = _col_values(soup, "Channel Type")
+    chan_types  = _col_values(soup, "Channel Type")
 
     n = max(len(chan_ids), len(powers), 1)
     channels = []
@@ -194,7 +195,11 @@ def parse_wan_info(html: str) -> dict:
                 total += int(dm.group(1)) * 86400
             hm = re.search(r"(\d+):(\d+):(\d+)", raw)
             if hm:
-                total += int(hm.group(1)) * 3600 + int(hm.group(2)) * 60 + int(hm.group(3))
+                total += (
+                    int(hm.group(1)) * 3600
+                    + int(hm.group(2)) * 60
+                    + int(hm.group(3))
+                )
             info["uptime_secs"] = total or None
             break
     return info
@@ -219,7 +224,10 @@ async def poll_router() -> RouterSnapshot:
         event_logs=parse_event_log(log_html) if log_html else [],
         **(parse_wan_info(wan_html) if wan_html else {}),
     )
-    log.info("scraper.poll", router_up=router_up,
-             ds_channels=len(snap.downstream),
-             us_channels=len(snap.upstream))
+    log.info(
+        "scraper.poll",
+        router_up=router_up,
+        ds_channels=len(snap.downstream),
+        us_channels=len(snap.upstream),
+    )
     return snap

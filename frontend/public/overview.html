@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DOCSIS Monitor — Overview</title>
+<link rel="stylesheet" href="/shared.css">
+</head>
+<body>
+
+<nav>
+  <a href="/overview.html" class="nav-logo">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-label="DOCSIS Monitor logo">
+      <rect x="2" y="15" width="4" height="5" rx="1" fill="var(--primary)"/>
+      <rect x="8" y="11" width="4" height="9" rx="1" fill="var(--primary)" opacity=".75"/>
+      <rect x="14" y="7" width="4" height="13" rx="1" fill="var(--primary)" opacity=".5"/>
+      <rect x="20" y="3" width="2" height="17" rx="1" fill="var(--primary)" opacity=".3"/>
+      <circle cx="4" cy="14" r="2" fill="var(--success)"/>
+    </svg>
+    <span>DOCSIS Monitor</span>
+  </a>
+  <div class="nav-links">
+    <a href="/overview.html" class="active">Overview</a>
+    <a href="/downstream.html">Downstream</a>
+    <a href="/upstream.html">Upstream</a>
+    <a href="/logs.html">Logs</a>
+    <a href="/diagnostics.html">Diagnostics</a>
+  </div>
+  <div class="nav-right">
+    <span id="poll-ts">–</span>
+    <button class="theme-btn" id="theme-toggle" aria-label="Toggle theme" title="Toggle light/dark">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+  </div>
+</nav>
+
+<main>
+  <div class="page-title">Overview</div>
+
+  <div class="status-banner">
+    <div class="dot unknown" id="s-dot"></div>
+    <span class="status-label unknown" id="s-label">Loading…</span>
+    <span class="status-meta" id="s-meta"></span>
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi-card"><div class="kpi-label">Status</div>
+      <div class="kpi-value neutral" id="kpi-status">–</div></div>
+    <div class="kpi-card"><div class="kpi-label">WAN IP</div>
+      <div class="kpi-value neutral" style="font-size:var(--text-lg)" id="kpi-wan">–</div></div>
+    <div class="kpi-card"><div class="kpi-label">Uptime</div>
+      <div class="kpi-value neutral" style="font-size:var(--text-lg)" id="kpi-uptime">–</div></div>
+    <div class="kpi-card"><div class="kpi-label">DS Channels</div>
+      <div class="kpi-value neutral" id="kpi-ds">–</div></div>
+    <div class="kpi-card"><div class="kpi-label">US Channels</div>
+      <div class="kpi-value neutral" id="kpi-us">–</div></div>
+    <div class="kpi-card"><div class="kpi-label">Open Alerts</div>
+      <div class="kpi-value neutral" id="kpi-alerts">–</div></div>
+  </div>
+
+  <div class="section-title">Active Alerts</div>
+  <div class="alert-list" id="alert-list">
+    <div class="loading">Loading alerts…</div>
+  </div>
+</main>
+
+<script>
+const API = '/api/v1';
+const html = document.documentElement;
+const themeBtn = document.getElementById('theme-toggle');
+
+function applyTheme(t) {
+  html.setAttribute('data-theme', t);
+  themeBtn.innerHTML = t === 'dark'
+    ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'
+    : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>';
+}
+
+let theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+applyTheme(theme);
+themeBtn.addEventListener('click', () => { theme = theme === 'dark' ? 'light' : 'dark'; applyTheme(theme); });
+
+function fmtUptime(s) {
+  if (!s) return '–';
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  return d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m`;
+}
+
+async function load() {
+  try {
+    const [ov, al] = await Promise.all([
+      fetch(`${API}/overview`).then(r => r.ok ? r.json() : Promise.reject(r.status)),
+      fetch(`${API}/alerts?open_only=true`).then(r => r.ok ? r.json() : {alerts:[]}),
+    ]);
+    const s = ov.status.toLowerCase();
+    document.getElementById('s-dot').className = `dot ${s}`;
+    const lbl = document.getElementById('s-label');
+    lbl.className = `status-label ${s}`;
+    lbl.textContent = ov.router_up ? ov.status : 'ROUTER OFFLINE';
+    document.getElementById('s-meta').textContent =
+      `Last poll: ${new Date(ov.last_poll).toLocaleTimeString()} · every ${ov.poll_interval_secs}s`;
+    document.getElementById('poll-ts').textContent = new Date(ov.last_poll).toLocaleTimeString();
+
+    const kv = (id, v, c) => { const e = document.getElementById(id); e.textContent = v; if(c) e.className = `kpi-value ${c}`; };
+    kv('kpi-status', ov.status, s);
+    kv('kpi-wan', ov.wan_ip || '–');
+    document.getElementById('kpi-uptime').textContent = fmtUptime(ov.uptime_secs);
+    kv('kpi-ds', ov.downstream_count);
+    kv('kpi-us', ov.upstream_count);
+    const tot = (ov.open_critical||0) + (ov.open_warn||0);
+    kv('kpi-alerts', tot, tot === 0 ? 'ok' : (ov.open_critical ? 'critical' : 'warn'));
+
+    const alerts = al.alerts || [];
+    const list = document.getElementById('alert-list');
+    list.innerHTML = alerts.length === 0
+      ? '<div class="empty-state">✅ No active alerts — all systems nominal</div>'
+      : alerts.map(a => `
+        <div class="alert-item">
+          <span class="badge ${a.severity}">${a.severity}</span>
+          <span class="alert-msg">${a.message || a.alert_key}</span>
+          <span class="alert-time">${new Date(a.fired_at).toLocaleString()}</span>
+        </div>`).join('');
+  } catch(e) {
+    document.getElementById('s-label').textContent = 'API unavailable';
+    document.getElementById('alert-list').innerHTML = `<div class="error-msg">Cannot reach backend: ${e}</div>`;
+  }
+}
+
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

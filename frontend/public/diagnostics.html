@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DOCSIS Monitor — Diagnostics</title>
+<link rel="stylesheet" href="/shared.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"><\/script>
+</head>
+<body>
+
+<nav>
+  <a href="/overview.html" class="nav-logo">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-label="DOCSIS Monitor">
+      <rect x="2" y="15" width="4" height="5" rx="1" fill="var(--primary)"/>
+      <rect x="8" y="11" width="4" height="9" rx="1" fill="var(--primary)" opacity=".75"/>
+      <rect x="14" y="7" width="4" height="13" rx="1" fill="var(--primary)" opacity=".5"/>
+      <rect x="20" y="3" width="2" height="17" rx="1" fill="var(--primary)" opacity=".3"/>
+      <circle cx="4" cy="14" r="2" fill="var(--success)"/>
+    </svg>
+    <span>DOCSIS Monitor</span>
+  </a>
+  <div class="nav-links">
+    <a href="/overview.html">Overview</a>
+    <a href="/downstream.html">Downstream</a>
+    <a href="/upstream.html">Upstream</a>
+    <a href="/logs.html">Logs</a>
+    <a href="/diagnostics.html" class="active">Diagnostics</a>
+  </div>
+  <div class="nav-right">
+    <button class="theme-btn" id="theme-toggle" aria-label="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+  </div>
+</nav>
+
+<main>
+  <div class="page-title">Diagnostics &amp; Trend Analysis</div>
+
+  <div class="diag-grid" id="diag-grid">
+    <div class="card"><div class="loading">Loading diagnostics…</div></div>
+  </div>
+
+  <div class="chart-wrap">
+    <div class="chart-header">
+      <span class="chart-title">Downstream SNR (dB) — Historical</span>
+      <select class="chart-range" id="snr-range" onchange="loadChart('snr', this.value, 'snr-chart')">
+        <option value="6">6 hours</option>
+        <option value="24" selected>24 hours</option>
+        <option value="72">3 days</option>
+        <option value="168">7 days</option>
+      </select>
+    </div>
+    <canvas id="snr-chart" height="90"></canvas>
+  </div>
+
+  <div class="chart-wrap">
+    <div class="chart-header">
+      <span class="chart-title">Downstream Power (dBmV) — Historical</span>
+      <select class="chart-range" id="dsp-range" onchange="loadChart('ds_power', this.value, 'dsp-chart')">
+        <option value="6">6 hours</option>
+        <option value="24" selected>24 hours</option>
+        <option value="72">3 days</option>
+      </select>
+    </div>
+    <canvas id="dsp-chart" height="90"></canvas>
+  </div>
+
+  <div class="chart-wrap">
+    <div class="chart-header">
+      <span class="chart-title">Upstream Power (dBmV) — Historical</span>
+      <select class="chart-range" id="usp-range" onchange="loadChart('us_power', this.value, 'usp-chart')">
+        <option value="6">6 hours</option>
+        <option value="24" selected>24 hours</option>
+        <option value="72">3 days</option>
+      </select>
+    </div>
+    <canvas id="usp-chart" height="90"></canvas>
+  </div>
+</main>
+
+<script>
+const PALETTE = ['#4f98a3','#f0883e','#3fb950','#d29922','#a5d6ff','#ff7b72','#79c0ff','#56d364','#ffa657','#bc8cff'];
+const charts = {};
+
+let theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+document.documentElement.setAttribute('data-theme', theme);
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  theme = theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  // Rebuild all charts for new theme colours
+  ['snr', 'ds_power', 'us_power'].forEach((m, i) => {
+    const rangeIds = ['snr-range', 'dsp-range', 'usp-range'];
+    const chartIds = ['snr-chart', 'dsp-chart', 'usp-chart'];
+    const sel = document.getElementById(rangeIds[i]);
+    if (sel) loadChart(m, sel.value, chartIds[i]);
+  });
+});
+
+async function loadDiagnostics() {
+  try {
+    const res = await fetch('/api/v1/diagnostics');
+    if (!res.ok) throw new Error(res.status);
+    const d = await res.json();
+    const grid = document.getElementById('diag-grid');
+    const cards = [
+      {
+        title: 'Overall Health',
+        content: `<div class="diag-item ${d.summary === 'OK' ? 'ok' : d.summary === 'CRITICAL' ? 'crit' : 'warn'}">
+          ${d.summary === 'OK' ? '✓ All derived metrics nominal' : d.summary === 'CRITICAL' ? '🔴 Critical conditions detected' : '⚠ Warning conditions detected'}
+        </div>`
+      },
+      {
+        title: 'Signal Instability (avg SNR <33 dB)',
+        content: d.signal_instability.length
+          ? d.signal_instability.map(i => `<div class="diag-item warn">⚠ ${i.detail}</div>`).join('')
+          : '<div class="diag-item ok">✓ All channels stable</div>'
+      },
+      {
+        title: 'Channel Power Imbalance',
+        content: d.channel_imbalance
+          ? `<div class="diag-item ${d.channel_imbalance.flagged ? 'warn' : 'ok'}">
+              ${d.channel_imbalance.flagged ? '⚠' : '✓'} ${d.channel_imbalance.detail}
+             </div>`
+          : '<div class="diag-item">Insufficient data (need ≥2 channels)</div>'
+      },
+      {
+        title: 'High Uncorrectable Errors',
+        content: d.high_uncorrectables.length
+          ? d.high_uncorrectables.map(i => `<div class="diag-item warn">⚠ ${i.detail}</div>`).join('')
+          : '<div class="diag-item ok">✓ No elevated uncorrectable errors</div>'
+      },
+      {
+        title: 'T3 / T4 Ranging Faults',
+        content: d.t3t4_warnings.length
+          ? d.t3t4_warnings.map(i => `<div class="diag-item crit">🔴 ${i.detail}</div>`).join('')
+          : '<div class="diag-item ok">✓ No T3/T4 timeouts detected</div>'
+      },
+    ];
+    grid.innerHTML = cards.map(c => `<div class="card"><h3>${c.title}</h3>${c.content}</div>`).join('');
+  } catch(e) {
+    document.getElementById('diag-grid').innerHTML = `<div class="card"><div class="error-msg">Diagnostics unavailable: ${e}</div></div>`;
+  }
+}
+
+async function loadChart(metric, hours, canvasId) {
+  try {
+    const res = await fetch(`/api/v1/history/${metric}?hours=${hours}`);
+    if (!res.ok) throw new Error(res.status);
+    const { data } = await res.json();
+
+    const byChannel = {};
+    data.forEach(row => {
+      const k = String(row.channel_id);
+      if (!byChannel[k]) byChannel[k] = [];
+      byChannel[k].push({ x: new Date(row.ts), y: row.value });
+    });
+
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const gridColor  = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+    const tickColor  = isDark ? '#8b949e' : '#656d76';
+    const legendColor = isDark ? '#e6edf3' : '#1f2328';
+
+    if (charts[canvasId]) charts[canvasId].destroy();
+    charts[canvasId] = new Chart(document.getElementById(canvasId), {
+      type: 'line',
+      data: {
+        datasets: Object.entries(byChannel).map(([cid, pts], i) => ({
+          label: `Ch ${cid}`,
+          data: pts,
+          borderColor: PALETTE[i % PALETTE.length],
+          backgroundColor: 'transparent',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.3,
+        })),
+      },
+      options: {
+        responsive: true,
+        animation: false,
+        interaction: { mode: 'nearest', axis: 'x', intersect: false },
+        scales: {
+          x: {
+            type: 'time',
+            time: { tooltipFormat: 'HH:mm dd/MM' },
+            grid: { color: gridColor },
+            ticks: { color: tickColor, maxTicksLimit: 8 },
+          },
+          y: {
+            grid: { color: gridColor },
+            ticks: { color: tickColor },
+          },
+        },
+        plugins: {
+          legend: { labels: { color: legendColor, usePointStyle: true, boxWidth: 8 } },
+          tooltip: { mode: 'nearest', intersect: false },
+        },
+      },
+    });
+  } catch(e) {
+    console.error('Chart load failed:', e);
+  }
+}
+
+loadDiagnostics();
+loadChart('snr',      document.getElementById('snr-range').value, 'snr-chart');
+loadChart('ds_power', document.getElementById('dsp-range').value, 'dsp-chart');
+loadChart('us_power', document.getElementById('usp-range').value, 'usp-chart');
+setInterval(loadDiagnostics, 60000);
+</script>
+</body>
+</html>

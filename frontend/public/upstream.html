@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DOCSIS Monitor — Upstream</title>
+<link rel="stylesheet" href="/shared.css">
+</head>
+<body>
+
+<nav>
+  <a href="/overview.html" class="nav-logo">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-label="DOCSIS Monitor">
+      <rect x="2" y="15" width="4" height="5" rx="1" fill="var(--primary)"/>
+      <rect x="8" y="11" width="4" height="9" rx="1" fill="var(--primary)" opacity=".75"/>
+      <rect x="14" y="7" width="4" height="13" rx="1" fill="var(--primary)" opacity=".5"/>
+      <rect x="20" y="3" width="2" height="17" rx="1" fill="var(--primary)" opacity=".3"/>
+      <circle cx="4" cy="14" r="2" fill="var(--success)"/>
+    </svg>
+    <span>DOCSIS Monitor</span>
+  </a>
+  <div class="nav-links">
+    <a href="/overview.html">Overview</a>
+    <a href="/downstream.html">Downstream</a>
+    <a href="/upstream.html" class="active">Upstream</a>
+    <a href="/logs.html">Logs</a>
+    <a href="/diagnostics.html">Diagnostics</a>
+  </div>
+  <div class="nav-right">
+    <span id="poll-ts">–</span>
+    <button class="theme-btn" id="theme-toggle" aria-label="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+  </div>
+</nav>
+
+<main>
+  <div class="page-title">Upstream Channels</div>
+
+  <div class="thresholds">
+    <span>Power normal: <strong>38–48.5 dBmV</strong></span>
+    <span>T3/T4 timeouts: <strong>Critical on any occurrence</strong></span>
+    <span>High TX power (&gt;48.5 dBmV): <strong>Possible upstream impairment</strong></span>
+    <span>Polled: <strong id="us-polled">–</strong></span>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Ch ID</th>
+          <th>DOCSIS</th>
+          <th>Freq (MHz)</th>
+          <th>Power (dBmV)</th>
+          <th>Type</th>
+          <th>T1 Timeouts</th>
+          <th>T2 Timeouts</th>
+          <th>T3 Timeouts</th>
+          <th>T4 Timeouts</th>
+        </tr>
+      </thead>
+      <tbody id="us-tbody">
+        <tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--muted)">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+let theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+document.documentElement.setAttribute('data-theme', theme);
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  theme = theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+});
+
+async function load() {
+  try {
+    const res = await fetch('/api/v1/upstream');
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    document.getElementById('us-polled').textContent = new Date(data.polled_at).toLocaleTimeString();
+    document.getElementById('poll-ts').textContent = new Date(data.polled_at).toLocaleTimeString();
+    const tbody = document.getElementById('us-tbody');
+    tbody.innerHTML = data.channels.length === 0
+      ? '<tr><td colspan="9" style="text-align:center;padding:2rem">No upstream channels found</td></tr>'
+      : data.channels.map(ch => `<tr>
+          <td>${ch.channel_id ?? '–'}</td>
+          <td><span class="badge unknown">${ch.docsis_version}</span></td>
+          <td>${ch.frequency_hz ? (ch.frequency_hz/1e6).toFixed(3) : '–'}</td>
+          <td class="${ch.power_status}">${ch.power_dbmv != null ? ch.power_dbmv.toFixed(1) : '–'}</td>
+          <td>${ch.channel_type ?? '–'}</td>
+          <td>${ch.t1_timeouts}</td>
+          <td>${ch.t2_timeouts}</td>
+          <td class="${ch.t3_timeouts > 0 ? 'critical' : ''}">${ch.t3_timeouts}</td>
+          <td class="${ch.t4_timeouts > 0 ? 'critical' : ''}">${ch.t4_timeouts}</td>
+        </tr>`).join('');
+  } catch(e) {
+    document.getElementById('us-tbody').innerHTML = `<tr><td colspan="9" style="color:var(--error);padding:1rem">Error: ${e}</td></tr>`;
+  }
+}
+
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

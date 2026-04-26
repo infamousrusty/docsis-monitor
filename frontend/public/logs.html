@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DOCSIS Monitor — Event Logs</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+  .log-crit td:first-child { border-left: 3px solid var(--error); }
+  .log-error td:first-child { border-left: 3px solid var(--error); opacity: .8; }
+  .log-warn td:first-child { border-left: 3px solid var(--warning); }
+  .log-count { margin-left: auto; font-size: var(--text-xs); color: var(--muted); }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="/overview.html" class="nav-logo">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-label="DOCSIS Monitor">
+      <rect x="2" y="15" width="4" height="5" rx="1" fill="var(--primary)"/>
+      <rect x="8" y="11" width="4" height="9" rx="1" fill="var(--primary)" opacity=".75"/>
+      <rect x="14" y="7" width="4" height="13" rx="1" fill="var(--primary)" opacity=".5"/>
+      <rect x="20" y="3" width="2" height="17" rx="1" fill="var(--primary)" opacity=".3"/>
+      <circle cx="4" cy="14" r="2" fill="var(--success)"/>
+    </svg>
+    <span>DOCSIS Monitor</span>
+  </a>
+  <div class="nav-links">
+    <a href="/overview.html">Overview</a>
+    <a href="/downstream.html">Downstream</a>
+    <a href="/upstream.html">Upstream</a>
+    <a href="/logs.html" class="active">Logs</a>
+    <a href="/diagnostics.html">Diagnostics</a>
+  </div>
+  <div class="nav-right">
+    <button class="theme-btn" id="theme-toggle" aria-label="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+  </div>
+</nav>
+
+<main>
+  <div class="page-title">
+    Event Logs
+    <span class="log-count" id="log-count"></span>
+  </div>
+
+  <div class="filter-bar">
+    <select id="filter-sev" onchange="fetchLogs()">
+      <option value="">All Severities</option>
+      <option value="CRITICAL">Critical</option>
+      <option value="ERROR">Error</option>
+      <option value="WARNING">Warning</option>
+      <option value="NOTICE">Notice</option>
+    </select>
+    <input type="text" id="filter-text" placeholder="Filter by message text…" oninput="filterTable()" style="min-width:220px">
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Severity</th>
+          <th>Message</th>
+        </tr>
+      </thead>
+      <tbody id="log-tbody">
+        <tr><td colspan="3" style="text-align:center;padding:2rem;color:var(--muted)">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+let theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+document.documentElement.setAttribute('data-theme', theme);
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  theme = theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+});
+
+let allLogs = [];
+
+function renderLogs(logs) {
+  document.getElementById('log-count').textContent = `${logs.length} entries`;
+  const tbody = document.getElementById('log-tbody');
+  if (!logs.length) {
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:2rem">No log entries match the current filter</td></tr>';
+    return;
+  }
+  tbody.innerHTML = logs.map(l => {
+    const s = (l.severity || 'notice').toLowerCase();
+    const rowCls = s === 'critical' ? 'log-crit' : s === 'error' ? 'log-error' : s === 'warning' ? 'log-warn' : '';
+    const badgeCls = s === 'critical' || s === 'error' ? 'critical' : s === 'warning' ? 'warn' : 'unknown';
+    return `<tr class="${rowCls}">
+      <td style="white-space:nowrap;font-size:var(--text-xs);color:var(--muted)">${l.ts}</td>
+      <td><span class="badge ${badgeCls}">${l.severity}</span></td>
+      <td style="font-size:var(--text-sm)">${l.message}</td>
+    </tr>`;
+  }).join('');
+}
+
+function filterTable() {
+  const q = document.getElementById('filter-text').value.toLowerCase();
+  renderLogs(q ? allLogs.filter(l => l.message?.toLowerCase().includes(q)) : allLogs);
+}
+
+async function fetchLogs() {
+  const sev = document.getElementById('filter-sev').value;
+  const url = `/api/v1/logs?limit=500${sev ? '&severity=' + encodeURIComponent(sev) : ''}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    allLogs = data.logs;
+    filterTable();
+  } catch(e) {
+    document.getElementById('log-tbody').innerHTML = `<tr><td colspan="3" style="color:var(--error);padding:1rem">Error: ${e}</td></tr>`;
+  }
+}
+
+fetchLogs();
+setInterval(fetchLogs, 60000);
+</script>
+</body>
+</html>

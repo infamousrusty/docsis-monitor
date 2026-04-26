@@ -1,8 +1,9 @@
+"""Derived health analysis over recent polling history."""
 import aiosqlite
 
 
 async def get_diagnostics(db: aiosqlite.Connection) -> dict:
-    diags = {
+    diags: dict = {
         "signal_instability": [],
         "channel_imbalance": None,
         "high_uncorrectables": [],
@@ -23,6 +24,7 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
 
     ph = ",".join("?" * len(snap_ids))
 
+    # SNR per channel over recent window
     async with db.execute(
         f"""SELECT channel_id, AVG(snr_db), MIN(snr_db), MAX(snr_db)
             FROM downstream_channels
@@ -41,9 +43,10 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
                     "channel_id": cid,
                     "metric": "snr_db",
                     "avg": round(avg_s, 2),
-                    "detail": f"Channel {cid} avg SNR {avg_s:.1f} dB \u2014 degraded",
+                    "detail": f"Channel {cid} avg SNR {avg_s:.1f} dB — degraded signal",
                 })
 
+    # Power spread / channel imbalance
     async with db.execute(
         f"""SELECT channel_id, AVG(power_dbmv), MIN(power_dbmv), MAX(power_dbmv)
             FROM downstream_channels
@@ -71,6 +74,7 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
             "detail": f"Power spread across {len(powers)} DS channels: {spread:.1f} dBmV",
         }
 
+    # Cumulative uncorrectables over window
     async with db.execute(
         f"""SELECT channel_id, SUM(uncorrectables)
             FROM downstream_channels
@@ -86,6 +90,7 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
                 "detail": f"Channel {cid}: {total} uncorrectables in last 20 polls",
             })
 
+    # T3/T4 ranging faults
     async with db.execute(
         f"""SELECT channel_id, SUM(t3_timeouts), SUM(t4_timeouts)
             FROM upstream_channels
@@ -99,9 +104,10 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
                 "channel_id": cid,
                 "t3_total": t3,
                 "t4_total": t4,
-                "detail": f"US ch{cid}: T3={t3} T4={t4} \u2014 ranging instability",
+                "detail": f"US ch{cid}: T3={t3} T4={t4} — upstream ranging instability",
             })
 
+    # Overall summary
     if diags["t3t4_warnings"]:
         diags["summary"] = "CRITICAL"
     elif diags["signal_instability"] or (

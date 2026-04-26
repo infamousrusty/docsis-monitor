@@ -131,6 +131,7 @@ async def health():
 
 @app.get("/metrics", response_class=PlainTextResponse)
 async def prometheus_metrics():
+    from metrics import get_metrics_output
     data, ct = get_metrics_output()
     return Response(content=data, media_type=ct)
 
@@ -138,7 +139,7 @@ async def prometheus_metrics():
 @app.get("/api/v1/overview", dependencies=[Depends(optional_auth)])
 async def overview():
     if not _latest_snapshot:
-        raise HTTPException(503, "Poll pending")
+        raise HTTPException(503, "Poll pending — check ROUTER_IP and retry in 30s")
     snap = _latest_snapshot
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row

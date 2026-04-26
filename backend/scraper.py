@@ -1,6 +1,6 @@
 """
 Hub 5 scraper — handles both router mode (192.168.0.1) and modem mode (192.168.100.1).
-Endpoints discovered via community reverse engineering of VM firmware.
+Endpoints discovered via community reverse engineering of VM Hub 5 firmware.
 Gracefully degrades if any endpoint is unavailable.
 """
 import asyncio
@@ -21,15 +21,15 @@ from models import RouterSnapshot, DownstreamChannel, UpstreamChannel, EventLogE
 
 log = structlog.get_logger()
 
+# Discovered Hub 5 CGI endpoints (modem + router mode)
 EP_DOWNSTREAM = "/cgi-bin/VmRouterStatusDownstreamCfgCgi"
 EP_UPSTREAM   = "/cgi-bin/VmRouterStatusUpstreamCfgCgi"
 EP_EVENT_LOG  = "/cgi-bin/VmRouterEventLogCgi"
 EP_WAN        = "/cgi-bin/VmRouterStatusWanCgi"
-EP_STATUS     = "/cgi-bin/VmRouterStatusCgi"
 
 
 def _make_client() -> httpx.AsyncClient:
-    kwargs = dict(
+    kwargs: dict = dict(
         base_url=settings.router_base_url,
         timeout=settings.REQUEST_TIMEOUT,
         follow_redirects=True,
@@ -60,6 +60,7 @@ async def _fetch(client: httpx.AsyncClient, path: str) -> Optional[str]:
 
 
 def _col_values(soup: BeautifulSoup, label: str) -> list[str]:
+    """Find a table row by its first-cell text, return remaining cells."""
     cell = soup.find(string=re.compile(r"^\s*" + re.escape(label) + r"\s*$"))
     if not cell:
         return []
@@ -98,7 +99,7 @@ def parse_downstream(html: str) -> list[DownstreamChannel]:
     locks      = _col_values(soup, "Lock Status")
     corrected  = _col_values(soup, "Corrected") or _col_values(soup, "Pre RS Errors")
     uncorrect  = _col_values(soup, "Uncorrectables") or _col_values(soup, "Post RS Errors")
-    chan_types  = _col_values(soup, "Channel Type")
+    chan_types = _col_values(soup, "Channel Type")
 
     n = max(len(chan_ids), len(powers), 1)
     channels = []

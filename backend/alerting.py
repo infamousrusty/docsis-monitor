@@ -1,3 +1,7 @@
+"""
+Alert engine: threshold evaluation, debounce, webhook/email dispatch.
+Slack, Discord, and generic JSON webhooks are all auto-detected by URL.
+"""
 import asyncio
 import json
 import smtplib
@@ -15,6 +19,7 @@ from models import RouterSnapshot
 
 log = structlog.get_logger()
 
+# In-memory debounce map: alert_key -> last_fired datetime
 _debounce: dict[str, datetime] = {}
 
 
@@ -79,6 +84,7 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
     else:
         await _resolve_alert(db, "router_down")
 
+    # ── Downstream ────────────────────────────────────────────────────────────
     for ch in snap.downstream:
         cid = ch.channel_id or 0
 
@@ -87,20 +93,20 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
                 aid = await _open_alert(
                     db, f"ds_snr_crit_{cid}", "critical", cid, "snr_db",
                     ch.snr_db, settings.SNR_CRIT_DB,
-                    f"DS ch{cid}: SNR {ch.snr_db:.1f} dB < critical {settings.SNR_CRIT_DB} dB",
+                    f"DS ch{cid}: SNR {ch.snr_db:.1f} dB below critical threshold {settings.SNR_CRIT_DB} dB",
                 )
                 if aid:
                     fired.append({"id": aid, "severity": "critical",
-                        "message": f"DS ch{cid} SNR {ch.snr_db:.1f} dB"})
+                                   "message": f"DS ch{cid} SNR {ch.snr_db:.1f} dB (CRITICAL)"})
             elif ch.snr_db < settings.SNR_WARN_DB:
                 aid = await _open_alert(
                     db, f"ds_snr_warn_{cid}", "warn", cid, "snr_db",
                     ch.snr_db, settings.SNR_WARN_DB,
-                    f"DS ch{cid}: SNR {ch.snr_db:.1f} dB < warn {settings.SNR_WARN_DB} dB",
+                    f"DS ch{cid}: SNR {ch.snr_db:.1f} dB below warn threshold {settings.SNR_WARN_DB} dB",
                 )
                 if aid:
                     fired.append({"id": aid, "severity": "warn",
-                        "message": f"DS ch{cid} SNR {ch.snr_db:.1f} dB"})
+                                   "message": f"DS ch{cid} SNR {ch.snr_db:.1f} dB (WARN)"})
             else:
                 await _resolve_alert(db, f"ds_snr_crit_{cid}")
                 await _resolve_alert(db, f"ds_snr_warn_{cid}")
@@ -115,7 +121,7 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
                 )
                 if aid:
                     fired.append({"id": aid, "severity": "warn",
-                        "message": f"DS ch{cid} power {ch.power_dbmv:.1f} dBmV OOR"})
+                                   "message": f"DS ch{cid} power {ch.power_dbmv:.1f} dBmV OOR"})
             else:
                 await _resolve_alert(db, f"ds_power_{cid}")
 
@@ -134,10 +140,11 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
             )
             if aid:
                 fired.append({"id": aid, "severity": uncorr_sev,
-                    "message": f"DS ch{cid} uncorrectables: {ch.uncorrectables}"})
+                               "message": f"DS ch{cid} uncorrectables: {ch.uncorrectables}"})
         else:
             await _resolve_alert(db, f"ds_uncorr_{cid}")
 
+    # ── Upstream ──────────────────────────────────────────────────────────────
     for ch in snap.upstream:
         cid = ch.channel_id or 0
 
@@ -151,7 +158,7 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
                 )
                 if aid:
                     fired.append({"id": aid, "severity": "warn",
-                        "message": f"US ch{cid} power {ch.power_dbmv:.1f} dBmV OOR"})
+                                   "message": f"US ch{cid} power {ch.power_dbmv:.1f} dBmV OOR"})
             else:
                 await _resolve_alert(db, f"us_power_{cid}")
 
@@ -160,11 +167,11 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
             aid = await _open_alert(
                 db, f"us_t3t4_{cid}", "critical", cid,
                 "t3t4_timeouts", float(t3t4), float(settings.T3_T4_CRIT_COUNT),
-                f"US ch{cid}: T3={ch.t3_timeouts} T4={ch.t4_timeouts} — ranging instability",
+                f"US ch{cid}: T3={ch.t3_timeouts} T4={ch.t4_timeouts} — ranging instability detected",
             )
             if aid:
                 fired.append({"id": aid, "severity": "critical",
-                    "message": f"US ch{cid} T3/T4: {t3t4}"})
+                               "message": f"US ch{cid} T3/T4 timeouts: {t3t4}"})
         else:
             await _resolve_alert(db, f"us_t3t4_{cid}")
 
@@ -173,14 +180,18 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
     return fired
 
 
-def _webhook_payload(snap: RouterSnapshot, alerts: list[dict]) -> dict:
+# ── Notification payloads ─────────────────────────────────────────────────────
+
+def _generic_payload(snap: RouterSnapshot, alerts: list[dict]) -> dict:
     return {
         "source": "docsis-monitor",
         "router_ip": settings.ROUTER_IP,
         "polled_at": snap.polled_at.isoformat() + "Z",
         "alert_count": len(alerts),
-        "alerts": [{"id": a["id"], "severity": a["severity"],
-                    "message": a["message"]} for a in alerts],
+        "alerts": [
+            {"id": a["id"], "severity": a["severity"], "message": a["message"]}
+            for a in alerts
+        ],
         "wan_ip": snap.wan_ip,
         "router_up": snap.router_up,
     }
@@ -193,7 +204,7 @@ def _slack_payload(snap: RouterSnapshot, alerts: list[dict]) -> dict:
     return {
         "attachments": [{
             "color": color,
-            "title": f"\U0001f6a8 DOCSIS Monitor \u2014 {len(alerts)} alert(s)",
+            "title": f":rotating_light: DOCSIS Monitor — {len(alerts)} alert(s)",
             "text": lines,
             "footer": f"Router {settings.ROUTER_IP} | "
                       f"{snap.polled_at.strftime('%Y-%m-%d %H:%M UTC')}",
@@ -210,7 +221,7 @@ def _discord_payload(snap: RouterSnapshot, alerts: list[dict]) -> dict:
     return {
         "username": "DOCSIS Monitor",
         "embeds": [{
-            "title": f"{'\U0001f534' if crit else '\U0001f7e1'} DOCSIS Alert \u2014 {len(alerts)} issue(s)",
+            "title": f"{'🔴' if crit else '🟡'} DOCSIS Alert — {len(alerts)} issue(s)",
             "color": 16711680 if crit else 16753920,
             "description": "\n".join(
                 f"**[{a['severity'].upper()}]** {a['message']}" for a in alerts
@@ -227,19 +238,19 @@ async def _send_webhook(url: str, snap: RouterSnapshot, alerts: list[dict]):
     elif "discord.com" in url:
         payload = _discord_payload(snap, alerts)
     else:
-        payload = _webhook_payload(snap, alerts)
+        payload = _generic_payload(snap, alerts)
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             (await client.post(url, json=payload)).raise_for_status()
-        log.info("alerting.webhook_sent", url=url[:50])
+        log.info("alerting.webhook_sent", url=url[:60])
     except Exception as e:
-        log.error("alerting.webhook_failed", url=url[:50], error=str(e))
+        log.error("alerting.webhook_failed", url=url[:60], error=str(e))
 
 
 async def _send_email(snap: RouterSnapshot, alerts: list[dict]):
     if not all([settings.SMTP_HOST, settings.SMTP_TO]):
         return
-    lines = [f"DOCSIS Monitor \u2014 {snap.polled_at.strftime('%Y-%m-%d %H:%M UTC')}", ""]
+    lines = [f"DOCSIS Monitor — {snap.polled_at.strftime('%Y-%m-%d %H:%M UTC')}", ""]
     for a in alerts:
         lines.append(f"[{a['severity'].upper()}] {a['message']}")
     lines += ["", f"Router: {settings.ROUTER_IP}", f"WAN IP: {snap.wan_ip or 'unknown'}"]
@@ -255,6 +266,7 @@ async def _send_email(snap: RouterSnapshot, alerts: list[dict]):
             if settings.SMTP_USER:
                 srv.login(settings.SMTP_USER, settings.SMTP_PASS or "")
             srv.send_message(msg)
+        log.info("alerting.email_sent", to=settings.SMTP_TO)
     except Exception as e:
         log.error("alerting.email_failed", error=str(e))
 

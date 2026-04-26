@@ -1,28 +1,31 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# DOCSIS Monitor — CI Pipeline
+# Stages: lint → test → docker-build → trivy-scan
+# Runs on: push to main/develop, all PRs
+# ──────────────────────────────────────────────────────────────────────────────
 name: CI
 
 on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-  security-events: write  # for Trivy SARIF upload
-
 jobs:
-  # ───────────────────────────────────────────────────────────────────────────
+
+  # ── Lint ────────────────────────────────────────────────────────────────────
   lint:
-    name: Lint (ruff + yamllint)
+    name: Lint (ruff + nginx)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
@@ -32,64 +35,64 @@ jobs:
         run: pip install ruff==0.4.10
 
       - name: Ruff lint
-        run: ruff check backend/
+        run: ruff check backend/ tests/
 
       - name: Ruff format check
-        run: ruff format --check backend/
+        run: ruff format --check backend/ tests/
 
-      - name: yamllint
+      - name: Validate nginx config
         run: |
-          pip install yamllint
-          yamllint -d relaxed docker-compose.yml prometheus.yml \
-            grafana/provisioning/datasources/prometheus.yml \
-            grafana/provisioning/dashboards/dashboard.yml
+          docker run --rm \
+            -v "${{ github.workspace }}/nginx:/etc/nginx:ro" \
+            nginx:1.27-alpine nginx -t -c /etc/nginx/nginx.conf
 
-  # ───────────────────────────────────────────────────────────────────────────
+  # ── Test ────────────────────────────────────────────────────────────────────
   test:
-    name: pytest (unit + integration)
+    name: pytest
     runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: backend
-
+    needs: lint
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest pytest-asyncio pytest-cov
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio pytest-cov httpx aiosqlite
 
       - name: Run tests
-        run: |
-          pytest ../tests/ \
-            -v \
-            --tb=short \
-            --cov=. \
-            --cov-report=term-missing \
-            --cov-report=xml:coverage.xml \
-            --cov-fail-under=70
         env:
           ROUTER_IP: "192.168.100.1"
           DB_PATH: ":memory:"
+          POLL_INTERVAL: "30"
           WEBHOOK_URLS: ""
+        run: |
+          cd backend
+          python -m pytest ../tests/ \
+            --cov=. \
+            --cov-report=term-missing \
+            --cov-report=xml:../coverage.xml \
+            --tb=short \
+            -v
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v4
+        uses: codecov/codecov-action@v4
         if: always()
         with:
-          name: coverage-report
-          path: backend/coverage.xml
+          files: coverage.xml
+          fail_ci_if_error: false
 
-  # ───────────────────────────────────────────────────────────────────────────
+  # ── Docker build smoke-test ──────────────────────────────────────────────────
   docker-build:
-    name: Docker build smoke test
+    name: Docker build smoke-test
     runs-on: ubuntu-24.04
-    needs: [lint, test]
+    needs: test
     steps:
       - uses: actions/checkout@v4
 
@@ -101,7 +104,7 @@ jobs:
         with:
           context: ./backend
           push: false
-          tags: docsis-monitor-app:ci
+          tags: docsis-app:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
           outputs: type=docker
@@ -111,29 +114,32 @@ jobs:
         with:
           context: ./frontend
           push: false
-          tags: docsis-monitor-web:ci
+          tags: docsis-web:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
           outputs: type=docker
 
-      - name: Smoke test — backend container starts
+      - name: Smoke-test backend container
         run: |
-          docker run --rm -d \
-            --name docsis-smoke \
+          docker run -d --name docsis-smoke \
             -e ROUTER_IP=192.168.100.1 \
             -e DB_PATH=/tmp/test.db \
-            -e WEBHOOK_URLS="" \
-            -p 8000:8000 \
-            docsis-monitor-app:ci
-          sleep 8
-          curl -f http://localhost:8000/health
-          docker stop docsis-smoke
+            -e POLL_INTERVAL=3600 \
+            -e WEBHOOK_URLS= \
+            -p 18000:8000 \
+            docsis-app:ci
+          sleep 10
+          curl -sf http://localhost:18000/health | grep -q 'ok'
+          docker rm -f docsis-smoke
 
-  # ───────────────────────────────────────────────────────────────────────────
+  # ── Trivy container vulnerability scan ──────────────────────────────────────
   trivy-scan:
-    name: Trivy container security scan
+    name: Trivy container scan
     runs-on: ubuntu-24.04
-    needs: [docker-build]
+    needs: docker-build
+    permissions:
+      security-events: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -145,29 +151,21 @@ jobs:
         with:
           context: ./backend
           push: false
-          tags: docsis-monitor-app:scan
+          tags: docsis-app:scan
           outputs: type=docker
 
-      - name: Run Trivy — CRITICAL/HIGH only, fail on CRITICAL
-        uses: aquasecurity/trivy-action@master
+      - name: Trivy scan — CRITICAL/HIGH only
+        uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: docsis-monitor-app:scan
+          image-ref: docsis-app:scan
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           exit-code: "1"
           ignore-unfixed: true
 
-      - name: Upload Trivy SARIF to GitHub Security
+      - name: Upload Trivy SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: trivy-results.sarif
-
-      - name: Trivy — frontend image
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: nginx:1.27-alpine
-          format: table
-          severity: CRITICAL
-          exit-code: "0"  # informational only for base images

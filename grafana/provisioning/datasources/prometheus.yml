@@ -1,14 +1,15 @@
+# Grafana datasource provisioning — Prometheus
 apiVersion: 1
 
 datasources:
   - name: Prometheus
     type: prometheus
-    uid: docsis_prometheus
+    uid: docsis-prometheus
     access: proxy
     url: http://prometheus:9090
     isDefault: true
     editable: false
     jsonData:
-      timeInterval: 30s
-      queryTimeout: 60s
+      timeInterval: "30s"
       httpMethod: POST
+      exemplarTraceIdDestinations: []

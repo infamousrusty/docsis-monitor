@@ -1,13 +1,13 @@
+# Grafana dashboard provisioning
 apiVersion: 1
 
 providers:
   - name: DOCSIS Monitor
     orgId: 1
     folder: DOCSIS
-    folderUid: docsis
     type: file
-    disableDeletion: false
+    disableDeletion: true
     updateIntervalSeconds: 30
-    allowUiUpdates: true
+    allowUiUpdates: false
     options:
       path: /var/lib/grafana/dashboards

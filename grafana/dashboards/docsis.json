@@ -1,5 +1,6 @@
 {
   "__inputs": [],
+  "__elements": {},
   "__requires": [
     { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "11.0.0" },
     { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
@@ -8,7 +9,7 @@
     { "type": "panel", "id": "table", "name": "Table", "version": "" }
   ],
   "annotations": { "list": [] },
-  "description": "Virgin Media SuperHub 5 DOCSIS health monitoring",
+  "description": "Virgin Media SuperHub 5 DOCSIS signal health",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -23,72 +24,130 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "docsis_prometheus" },
+      "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red",   "value": null },
+              { "color": "red",   "value": 0 },
               { "color": "green", "value": 1 }
             ]
           },
           "mappings": [
-            { "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } }, "type": "value" }
+            { "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } }, "type": "value" }
           ]
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 4, "w": 3, "x": 0, "y": 1 },
-      "id": 1,
-      "options": { "colorMode": "background", "graphMode": "none", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
-      "title": "Router Status",
-      "type": "stat",
-      "targets": [{ "datasource": { "uid": "docsis_prometheus" }, "expr": "docsis_router_up", "legendFormat": "Router" }]
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "docsis_prometheus" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 } ] }
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 4, "w": 3, "x": 3, "y": 1 },
-      "id": 2,
-      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "title": "Total Polls",
-      "type": "stat",
-      "targets": [{ "datasource": { "uid": "docsis_prometheus" }, "expr": "increase(docsis_poll_total[5m])", "legendFormat": "polls/5m" }]
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "docsis_prometheus" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
         }
       },
-      "gridPos": { "h": 4, "w": 3, "x": 6, "y": 1 },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 1,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "value_and_name", "colorMode": "background" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
+          "expr": "docsis_router_up",
+          "legendFormat": "Router"
+        }
+      ],
+      "title": "Router Status",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 1 },
+              { "color": "red",   "value": 5 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 2,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
+          "expr": "count(docsis_downstream_locked == 1)",
+          "legendFormat": "Locked"
+        }
+      ],
+      "title": "DS Channels Locked",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "red",   "value": 1 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
       "id": 3,
-      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "title": "Poll Errors",
-      "type": "stat",
-      "targets": [{ "datasource": { "uid": "docsis_prometheus" }, "expr": "increase(docsis_poll_errors_total[5m])", "legendFormat": "errors/5m" }]
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
+          "expr": "sum(docsis_upstream_t3_timeouts + docsis_upstream_t4_timeouts)",
+          "legendFormat": "T3+T4"
+        }
+      ],
+      "title": "T3/T4 Timeouts (current)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 100 },
+              { "color": "red",   "value": 500 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 4,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
+          "expr": "sum(docsis_downstream_uncorrectables)",
+          "legendFormat": "Uncorrectables"
+        }
+      ],
+      "title": "Total Uncorrectables",
+      "type": "stat"
     },
     {
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
       "id": 101,
-      "title": "Downstream — Signal Quality",
+      "title": "Downstream Signal Quality",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "docsis_prometheus" },
+      "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -98,29 +157,36 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red",    "value": null },
-              { "color": "orange", "value": 30 },
-              { "color": "yellow", "value": 33 },
-              { "color": "green",  "value": 36 }
+              { "color": "red",    "value": 0  },
+              { "color": "yellow", "value": 30 },
+              { "color": "green",  "value": 33 }
             ]
           },
-          "custom": { "lineWidth": 1.5, "fillOpacity": 5, "spanNulls": true }
-        },
-        "overrides": []
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 6 },
       "id": 10,
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
-      "title": "Downstream SNR per Channel (dB)",
-      "type": "timeseries",
-      "targets": [{
-        "datasource": { "uid": "docsis_prometheus" },
-        "expr": "docsis_downstream_snr_db",
-        "legendFormat": "Ch {{channel_id}} ({{docsis_version}})"
-      }]
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "min", "max"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
+          "expr": "docsis_downstream_snr_db",
+          "legendFormat": "Ch {{channel_id}} ({{docsis_version}})"
+        }
+      ],
+      "title": "DS SNR per Channel (dB)",
+      "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "docsis_prometheus" },
+      "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -130,55 +196,67 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "orange", "value": null },
-              { "color": "green",  "value": -7 },
-              { "color": "orange", "value": 7 }
+              { "color": "red",    "value": -15 },
+              { "color": "yellow", "value": -7  },
+              { "color": "green",  "value": -7  },
+              { "color": "yellow", "value": 7   },
+              { "color": "red",    "value": 15  }
             ]
           },
-          "custom": { "lineWidth": 1.5, "fillOpacity": 5, "spanNulls": true }
+          "custom": { "lineWidth": 1, "fillOpacity": 0, "showPoints": "never" }
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 6 },
       "id": 11,
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
-      "title": "Downstream Power per Channel (dBmV)",
-      "type": "timeseries",
-      "targets": [{
-        "datasource": { "uid": "docsis_prometheus" },
-        "expr": "docsis_downstream_power_dbmv",
-        "legendFormat": "Ch {{channel_id}}"
-      }]
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "min", "max"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
+          "expr": "docsis_downstream_power_dbmv",
+          "legendFormat": "Ch {{channel_id}} ({{docsis_version}})"
+        }
+      ],
+      "title": "DS Power per Channel (dBmV)",
+      "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "docsis_prometheus" },
+      "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
           "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 100 }, { "color": "red", "value": 500 } ] },
-          "custom": { "lineWidth": 1.5, "fillOpacity": 10, "spanNulls": true }
+          "min": 0,
+          "custom": { "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "drawStyle": "bars" }
         }
       },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 15 },
       "id": 12,
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
-      "title": "Downstream Uncorrectable Errors per Channel",
-      "type": "timeseries",
-      "targets": [{
-        "datasource": { "uid": "docsis_prometheus" },
-        "expr": "docsis_downstream_uncorrectables",
-        "legendFormat": "Ch {{channel_id}} uncorrectables"
-      }]
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum", "max"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
+          "expr": "rate(docsis_downstream_uncorrectables[5m])",
+          "legendFormat": "Ch {{channel_id}} uncorrectables/s"
+        }
+      ],
+      "title": "DS Uncorrectables Rate",
+      "type": "timeseries"
     },
     {
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
       "id": 102,
-      "title": "Upstream — Transmit Power & Ranging",
+      "title": "Upstream Signal",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "docsis_prometheus" },
+      "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -188,78 +266,72 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red",    "value": null },
-              { "color": "orange", "value": 38 },
-              { "color": "green",  "value": 40 },
-              { "color": "orange", "value": 48.5 },
-              { "color": "red",    "value": 51 }
+              { "color": "red",    "value": 0    },
+              { "color": "yellow", "value": 38   },
+              { "color": "green",  "value": 38   },
+              { "color": "yellow", "value": 48.5 },
+              { "color": "red",    "value": 55   }
             ]
           },
-          "custom": { "lineWidth": 1.5, "fillOpacity": 5, "spanNulls": true }
+          "custom": { "lineWidth": 1, "fillOpacity": 0, "showPoints": "never" }
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 23 },
       "id": 20,
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
-      "title": "Upstream Transmit Power per Channel (dBmV)",
-      "type": "timeseries",
-      "targets": [{
-        "datasource": { "uid": "docsis_prometheus" },
-        "expr": "docsis_upstream_power_dbmv",
-        "legendFormat": "Ch {{channel_id}} ({{docsis_version}})"
-      }]
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "min", "max"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
+          "expr": "docsis_upstream_power_dbmv",
+          "legendFormat": "Ch {{channel_id}} ({{docsis_version}})"
+        }
+      ],
+      "title": "US Transmit Power per Channel (dBmV)",
+      "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "docsis_prometheus" },
+      "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
           "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] },
-          "custom": { "lineWidth": 2, "fillOpacity": 20, "spanNulls": true }
+          "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 20, "showPoints": "auto" }
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 23 },
       "id": 21,
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
-      "title": "T3 / T4 Ranging Timeouts",
-      "type": "timeseries",
-      "targets": [
-        { "datasource": { "uid": "docsis_prometheus" }, "expr": "docsis_upstream_t3_timeouts", "legendFormat": "T3 Ch {{channel_id}}" },
-        { "datasource": { "uid": "docsis_prometheus" }, "expr": "docsis_upstream_t4_timeouts", "legendFormat": "T4 Ch {{channel_id}}" }
-      ]
-    },
-    {
-      "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
-      "id": 103,
-      "title": "Channel Lock Status",
-      "type": "row"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "docsis_prometheus" },
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] },
-          "mappings": [ { "options": { "0": { "text": "UNLOCKED" }, "1": { "text": "LOCKED" } }, "type": "value" } ]
-        }
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] }
       },
-      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 32 },
-      "id": 30,
-      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "horizontal" },
-      "title": "Downstream Channel Lock Status",
-      "type": "stat",
-      "targets": [{ "datasource": { "uid": "docsis_prometheus" }, "expr": "docsis_downstream_locked", "legendFormat": "Ch {{channel_id}}" }]
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
+          "expr": "docsis_upstream_t3_timeouts",
+          "legendFormat": "Ch {{channel_id}} T3"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "docsis-prometheus" },
+          "expr": "docsis_upstream_t4_timeouts",
+          "legendFormat": "Ch {{channel_id}} T4"
+        }
+      ],
+      "title": "US T3/T4 Timeouts",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["docsis", "hub5", "virgin-media"],
+  "tags": ["docsis", "cable", "virgin-media"],
+  "templating": { "list": [] },
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
   "title": "DOCSIS Monitor — SuperHub 5",
-  "uid": "docsis-hub5",
+  "uid": "docsis-superhub5",
   "version": 1
 }

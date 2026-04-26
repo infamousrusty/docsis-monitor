@@ -1,13 +1,15 @@
-# Grafana dashboard provisioning
+# Grafana dashboard provisioning — loads dashboards from /var/lib/grafana/dashboards
 apiVersion: 1
 
 providers:
-  - name: DOCSIS Monitor
+  - name: docsis-monitor
     orgId: 1
-    folder: DOCSIS
+    folder: DOCSIS Monitor
+    folderUid: docsis-monitor
     type: file
     disableDeletion: true
     updateIntervalSeconds: 30
     allowUiUpdates: false
     options:
       path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

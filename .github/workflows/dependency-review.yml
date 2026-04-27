@@ -21,7 +21,7 @@ jobs:
     outputs:
       deps: ${{ steps.filter.outputs.deps }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Path filter (dependency manifests + lockfiles)
         id: filter
@@ -57,7 +57,7 @@ jobs:
     if: needs.changes.outputs.deps == 'true'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Dependency Review
         uses: actions/dependency-review-action@v4

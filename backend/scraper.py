@@ -11,17 +11,17 @@ from typing import Optional
 import httpx
 from bs4 import BeautifulSoup
 from tenacity import (
-    retry,
+    retry, stop_after_attempt, wait_exponential,
     retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
 )
+import structlog
 
 from config import settings
-from models import DownstreamChannel, EventLogEntry, RouterSnapshot, UpstreamChannel
+from models import RouterSnapshot, DownstreamChannel, UpstreamChannel, EventLogEntry
 
-log = __import__("structlog").get_logger()
+log = structlog.get_logger()
 
+# Discovered Hub 5 CGI endpoints (modem + router mode)
 EP_DOWNSTREAM = "/cgi-bin/VmRouterStatusDownstreamCfgCgi"
 EP_UPSTREAM   = "/cgi-bin/VmRouterStatusUpstreamCfgCgi"
 EP_EVENT_LOG  = "/cgi-bin/VmRouterEventLogCgi"
@@ -30,12 +30,12 @@ EP_STATUS     = "/cgi-bin/VmRouterStatusCgi"
 
 
 def _make_client() -> httpx.AsyncClient:
-    kwargs = {
-        "base_url": settings.router_base_url,
-        "timeout": settings.REQUEST_TIMEOUT,
-        "follow_redirects": True,
-        "headers": {"User-Agent": "DOCSIS-Monitor/1.0"},
-    }
+    kwargs = dict(
+        base_url=settings.router_base_url,
+        timeout=settings.REQUEST_TIMEOUT,
+        follow_redirects=True,
+        headers={"User-Agent": "DOCSIS-Monitor/1.0"},
+    )
     if settings.ROUTER_USER and settings.ROUTER_PASS:
         kwargs["auth"] = (settings.ROUTER_USER, settings.ROUTER_PASS)
     return httpx.AsyncClient(**kwargs)
@@ -47,7 +47,7 @@ def _make_client() -> httpx.AsyncClient:
     retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException)),
     reraise=False,
 )
-async def _fetch(client: httpx.AsyncClient, path: str) -> str | None:
+async def _fetch(client: httpx.AsyncClient, path: str) -> Optional[str]:
     try:
         resp = await client.get(path)
         resp.raise_for_status()
@@ -72,14 +72,14 @@ def _col_values(soup: BeautifulSoup, label: str) -> list[str]:
     return [c.get_text(strip=True) for c in cells[1:]]
 
 
-def _sf(val: str) -> float | None:
+def _sf(val: str) -> Optional[float]:
     try:
         return float(val.replace("N/A", "").strip())
     except (ValueError, AttributeError):
         return None
 
 
-def _si(val: str) -> int | None:
+def _si(val: str) -> Optional[int]:
     try:
         return int(val.replace("N/A", "").strip())
     except (ValueError, AttributeError):
@@ -195,11 +195,7 @@ def parse_wan_info(html: str) -> dict:
                 total += int(dm.group(1)) * 86400
             hm = re.search(r"(\d+):(\d+):(\d+)", raw)
             if hm:
-                total += (
-                    int(hm.group(1)) * 3600
-                    + int(hm.group(2)) * 60
-                    + int(hm.group(3))
-                )
+                total += int(hm.group(1)) * 3600 + int(hm.group(2)) * 60 + int(hm.group(3))
             info["uptime_secs"] = total or None
             break
     return info
@@ -224,10 +220,7 @@ async def poll_router() -> RouterSnapshot:
         event_logs=parse_event_log(log_html) if log_html else [],
         **(parse_wan_info(wan_html) if wan_html else {}),
     )
-    log.info(
-        "scraper.poll",
-        router_up=router_up,
-        ds_channels=len(snap.downstream),
-        us_channels=len(snap.upstream),
-    )
+    log.info("scraper.poll", router_up=router_up,
+             ds_channels=len(snap.downstream),
+             us_channels=len(snap.upstream))
     return snap

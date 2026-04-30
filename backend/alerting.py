@@ -1,4 +1,8 @@
+"""
+Alert engine: evaluates thresholds, debounces, fires webhooks/email.
+"""
 import asyncio
+import json
 import smtplib
 import ssl
 from datetime import datetime
@@ -14,6 +18,7 @@ from models import RouterSnapshot
 
 log = structlog.get_logger()
 
+# In-memory debounce map: alert_key -> last_fired
 _debounce: dict[str, datetime] = {}
 
 
@@ -25,31 +30,28 @@ async def _open_alert(
     db: aiosqlite.Connection,
     alert_key: str,
     severity: str,
-    channel_id: int | None,
-    metric: str | None,
-    value: float | None,
-    threshold: float | None,
+    channel_id: Optional[int],
+    metric: Optional[str],
+    value: Optional[float],
+    threshold: Optional[float],
     message: str,
-) -> int | None:
+) -> Optional[int]:
     now = datetime.utcnow()
     last = _debounce.get(alert_key)
     if last and (now - last).total_seconds() < settings.ALERT_DEBOUNCE_SECONDS:
         return None
 
     async with db.execute(
-        "SELECT id FROM alerts WHERE alert_key=? AND resolved_at IS NULL",
-        (alert_key,),
+        "SELECT id FROM alerts WHERE alert_key=? AND resolved_at IS NULL", (alert_key,)
     ) as cur:
         if await cur.fetchone():
             return None
 
     _debounce[alert_key] = now
     async with db.execute(
-        """
-        INSERT INTO alerts
-               (severity, alert_key, channel_id, metric, value, threshold, message, notified)
-               VALUES (?,?,?,?,?,?,?,0)
-        """,
+        """INSERT INTO alerts
+           (severity, alert_key, channel_id, metric, value, threshold, message, notified)
+           VALUES (?,?,?,?,?,?,?,0)""",
         (severity, alert_key, channel_id, metric, value, threshold, message),
     ) as cur:
         alert_id = cur.lastrowid
@@ -67,25 +69,16 @@ async def _resolve_alert(db: aiosqlite.Connection, alert_key: str):
     _debounce.pop(alert_key, None)
 
 
-async def evaluate_snapshot(
-    db: aiosqlite.Connection, snap: RouterSnapshot
-) -> list[dict]:
+async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> list[dict]:
     fired: list[dict] = []
 
     if not snap.router_up:
-        aid = await _open_alert(
-            db,
-            "router_down",
-            "critical",
-            None,
-            "reachability",
-            None,
-            None,
-            "Router is unreachable — polling failed.",
-        )
+        aid = await _open_alert(db, "router_down", "critical", None,
+                                 "reachability", None, None,
+                                 "Router is unreachable — polling failed.")
         if aid:
             fired.append({"id": aid, "severity": "critical",
-                          "message": "Router unreachable."})
+                           "message": "Router unreachable."})
         return fired
     else:
         await _resolve_alert(db, "router_down")
@@ -97,42 +90,22 @@ async def evaluate_snapshot(
         if ch.snr_db is not None:
             if ch.snr_db < settings.SNR_CRIT_DB:
                 aid = await _open_alert(
-                    db,
-                    f"ds_snr_crit_{cid}",
-                    "critical",
-                    cid,
-                    "snr_db",
-                    ch.snr_db,
-                    settings.SNR_CRIT_DB,
-                    (
-                        f"DS ch{cid}: SNR {ch.snr_db:.1f} dB "
-                        f"< critical {settings.SNR_CRIT_DB} dB"
-                    ),
+                    db, f"ds_snr_crit_{cid}", "critical", cid, "snr_db",
+                    ch.snr_db, settings.SNR_CRIT_DB,
+                    f"DS ch{cid}: SNR {ch.snr_db:.1f} dB < critical {settings.SNR_CRIT_DB} dB",
                 )
                 if aid:
-                    fired.append(
-                        {"id": aid, "severity": "critical",
-                         "message": f"DS ch{cid} SNR {ch.snr_db:.1f} dB"}
-                    )
+                    fired.append({"id": aid, "severity": "critical",
+                        "message": f"DS ch{cid} SNR {ch.snr_db:.1f} dB"})
             elif ch.snr_db < settings.SNR_WARN_DB:
                 aid = await _open_alert(
-                    db,
-                    f"ds_snr_warn_{cid}",
-                    "warn",
-                    cid,
-                    "snr_db",
-                    ch.snr_db,
-                    settings.SNR_WARN_DB,
-                    (
-                        f"DS ch{cid}: SNR {ch.snr_db:.1f} dB "
-                        f"< warn {settings.SNR_WARN_DB} dB"
-                    ),
+                    db, f"ds_snr_warn_{cid}", "warn", cid, "snr_db",
+                    ch.snr_db, settings.SNR_WARN_DB,
+                    f"DS ch{cid}: SNR {ch.snr_db:.1f} dB < warn {settings.SNR_WARN_DB} dB",
                 )
                 if aid:
-                    fired.append(
-                        {"id": aid, "severity": "warn",
-                         "message": f"DS ch{cid} SNR {ch.snr_db:.1f} dB"}
-                    )
+                    fired.append({"id": aid, "severity": "warn",
+                        "message": f"DS ch{cid} SNR {ch.snr_db:.1f} dB"})
             else:
                 await _resolve_alert(db, f"ds_snr_crit_{cid}")
                 await _resolve_alert(db, f"ds_snr_warn_{cid}")
@@ -140,23 +113,14 @@ async def evaluate_snapshot(
         if ch.power_dbmv is not None:
             if not (settings.DS_POWER_MIN <= ch.power_dbmv <= settings.DS_POWER_MAX):
                 aid = await _open_alert(
-                    db,
-                    f"ds_power_{cid}",
-                    "warn",
-                    cid,
-                    "power_dbmv",
-                    ch.power_dbmv,
-                    None,
-                    (
-                        f"DS ch{cid}: power {ch.power_dbmv:.1f} dBmV outside "
-                        f"[{settings.DS_POWER_MIN}, {settings.DS_POWER_MAX}]"
-                    ),
+                    db, f"ds_power_{cid}", "warn", cid, "power_dbmv",
+                    ch.power_dbmv, None,
+                    f"DS ch{cid}: power {ch.power_dbmv:.1f} dBmV outside "
+                    f"[{settings.DS_POWER_MIN}, {settings.DS_POWER_MAX}]",
                 )
                 if aid:
-                    fired.append(
-                        {"id": aid, "severity": "warn",
-                         "message": f"DS ch{cid} power {ch.power_dbmv:.1f} dBmV OOR"}
-                    )
+                    fired.append({"id": aid, "severity": "warn",
+                        "message": f"DS ch{cid} power {ch.power_dbmv:.1f} dBmV OOR"})
             else:
                 await _resolve_alert(db, f"ds_power_{cid}")
 
@@ -168,20 +132,14 @@ async def evaluate_snapshot(
 
         if uncorr_sev:
             aid = await _open_alert(
-                db,
-                f"ds_uncorr_{cid}",
-                uncorr_sev,
-                cid,
-                "uncorrectables",
-                float(ch.uncorrectables),
+                db, f"ds_uncorr_{cid}", uncorr_sev, cid,
+                "uncorrectables", float(ch.uncorrectables),
                 float(settings.UNCORRECTABLE_WARN),
                 f"DS ch{cid}: {ch.uncorrectables} uncorrectable errors",
             )
             if aid:
-                fired.append(
-                    {"id": aid, "severity": uncorr_sev,
-                     "message": f"DS ch{cid} uncorrectables: {ch.uncorrectables}"}
-                )
+                fired.append({"id": aid, "severity": uncorr_sev,
+                    "message": f"DS ch{cid} uncorrectables: {ch.uncorrectables}"})
         else:
             await _resolve_alert(db, f"ds_uncorr_{cid}")
 
@@ -192,43 +150,27 @@ async def evaluate_snapshot(
         if ch.power_dbmv is not None:
             if not (settings.US_POWER_MIN <= ch.power_dbmv <= settings.US_POWER_MAX):
                 aid = await _open_alert(
-                    db,
-                    f"us_power_{cid}",
-                    "warn",
-                    cid,
-                    "power_dbmv",
-                    ch.power_dbmv,
-                    None,
-                    (
-                        f"US ch{cid}: power {ch.power_dbmv:.1f} dBmV outside "
-                        f"[{settings.US_POWER_MIN}, {settings.US_POWER_MAX}]"
-                    ),
+                    db, f"us_power_{cid}", "warn", cid, "power_dbmv",
+                    ch.power_dbmv, None,
+                    f"US ch{cid}: power {ch.power_dbmv:.1f} dBmV outside "
+                    f"[{settings.US_POWER_MIN}, {settings.US_POWER_MAX}]",
                 )
                 if aid:
-                    fired.append(
-                        {"id": aid, "severity": "warn",
-                         "message": f"US ch{cid} power {ch.power_dbmv:.1f} dBmV OOR"}
-                    )
+                    fired.append({"id": aid, "severity": "warn",
+                        "message": f"US ch{cid} power {ch.power_dbmv:.1f} dBmV OOR"})
             else:
                 await _resolve_alert(db, f"us_power_{cid}")
 
         t3t4 = ch.t3_timeouts + ch.t4_timeouts
         if t3t4 >= settings.T3_T4_CRIT_COUNT:
             aid = await _open_alert(
-                db,
-                f"us_t3t4_{cid}",
-                "critical",
-                cid,
-                "t3t4_timeouts",
-                float(t3t4),
-                float(settings.T3_T4_CRIT_COUNT),
+                db, f"us_t3t4_{cid}", "critical", cid,
+                "t3t4_timeouts", float(t3t4), float(settings.T3_T4_CRIT_COUNT),
                 f"US ch{cid}: T3={ch.t3_timeouts} T4={ch.t4_timeouts} — ranging instability",
             )
             if aid:
-                fired.append(
-                    {"id": aid, "severity": "critical",
-                     "message": f"US ch{cid} T3/T4: {t3t4}"}
-                )
+                fired.append({"id": aid, "severity": "critical",
+                    "message": f"US ch{cid} T3/T4: {t3t4}"})
         else:
             await _resolve_alert(db, f"us_t3t4_{cid}")
 
@@ -237,7 +179,7 @@ async def evaluate_snapshot(
     return fired
 
 
-# ── Notification dispatch ──────────────────────────────────────────────────────
+# Notification dispatch
 
 def _webhook_payload(snap: RouterSnapshot, alerts: list[dict]) -> dict:
     return {
@@ -245,35 +187,29 @@ def _webhook_payload(snap: RouterSnapshot, alerts: list[dict]) -> dict:
         "router_ip": settings.ROUTER_IP,
         "polled_at": snap.polled_at.isoformat() + "Z",
         "alert_count": len(alerts),
-        "alerts": [
-            {"id": a["id"], "severity": a["severity"], "message": a["message"]}
-            for a in alerts
-        ],
+        "alerts": [{"id": a["id"], "severity": a["severity"],
+                    "message": a["message"]} for a in alerts],
         "wan_ip": snap.wan_ip,
         "router_up": snap.router_up,
     }
 
 
 def _slack_payload(snap: RouterSnapshot, alerts: list[dict]) -> dict:
-    crit = [a for a in alerts if a["severity"] == "critical"]
+    crit  = [a for a in alerts if a["severity"] == "critical"]
     color = "#FF0000" if crit else "#FFA500"
-    lines = "\n".join(
-        f"• [{a['severity'].upper()}] {a['message']}" for a in alerts
-    )
+    lines = "\n".join(f"• [{a['severity'].upper()}] {a['message']}" for a in alerts)
     return {
         "attachments": [{
             "color": color,
             "title": f"🚨 DOCSIS Monitor — {len(alerts)} alert(s)",
             "text": lines,
-            "footer": (
-                f"Router {settings.ROUTER_IP} | "
-                f"{snap.polled_at.strftime('%Y-%m-%d %H:%M UTC')}"
-            ),
+            "footer": f"Router {settings.ROUTER_IP} | "
+                      f"{snap.polled_at.strftime('%Y-%m-%d %H:%M UTC')}",
             "fields": [
                 {"title": "Critical", "value": str(len(crit)), "short": True},
                 {"title": "Warning",  "value": str(len(alerts) - len(crit)), "short": True},
             ],
-        }],
+        }]
     }
 
 
@@ -311,21 +247,14 @@ async def _send_webhook(url: str, snap: RouterSnapshot, alerts: list[dict]):
 async def _send_email(snap: RouterSnapshot, alerts: list[dict]):
     if not all([settings.SMTP_HOST, settings.SMTP_TO]):
         return
-    lines = [
-        f"DOCSIS Monitor — {snap.polled_at.strftime('%Y-%m-%d %H:%M UTC')}",
-        "",
-    ]
+    lines = [f"DOCSIS Monitor — {snap.polled_at.strftime('%Y-%m-%d %H:%M UTC')}", ""]
     for a in alerts:
         lines.append(f"[{a['severity'].upper()}] {a['message']}")
-    lines += [
-        "",
-        f"Router: {settings.ROUTER_IP}",
-        f"WAN IP: {snap.wan_ip or 'unknown'}",
-    ]
+    lines += ["", f"Router: {settings.ROUTER_IP}", f"WAN IP: {snap.wan_ip or 'unknown'}"]
     msg = EmailMessage()
     msg["Subject"] = f"[DOCSIS Monitor] {len(alerts)} alert(s)"
-    msg["From"] = settings.SMTP_FROM
-    msg["To"] = settings.SMTP_TO
+    msg["From"]    = settings.SMTP_FROM
+    msg["To"]      = settings.SMTP_TO
     msg.set_content("\n".join(lines))
     try:
         ctx = ssl.create_default_context()
@@ -338,9 +267,7 @@ async def _send_email(snap: RouterSnapshot, alerts: list[dict]):
         log.error("alerting.email_failed", error=str(e))
 
 
-async def _dispatch_notifications(
-    snap: RouterSnapshot, alerts: list[dict]
-):
+async def _dispatch_notifications(snap: RouterSnapshot, alerts: list[dict]):
     tasks = [_send_webhook(u, snap, alerts) for u in settings.webhook_list]
     tasks.append(_send_email(snap, alerts))
     await asyncio.gather(*tasks, return_exceptions=True)

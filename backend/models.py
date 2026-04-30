@@ -1,24 +1,23 @@
+from pydantic import BaseModel
+from typing import Optional, List
 from datetime import datetime
 from enum import Enum
-from typing import Optional
-
-from pydantic import BaseModel
 
 
 class Severity(str, Enum):
-    OK = "ok"
-    WARN = "warn"
+    OK       = "ok"
+    WARN     = "warn"
     CRITICAL = "critical"
-    UNKNOWN = "unknown"
+    UNKNOWN  = "unknown"
 
 
 class DownstreamChannel(BaseModel):
-    channel_id: int | None = None
-    frequency_hz: int | None = None
-    power_dbmv: float | None = None
-    snr_db: float | None = None
-    modulation: str | None = None
-    lock_status: str | None = None
+    channel_id: Optional[int] = None
+    frequency_hz: Optional[int] = None
+    power_dbmv: Optional[float] = None
+    snr_db: Optional[float] = None
+    modulation: Optional[str] = None
+    lock_status: Optional[str] = None
     corrected: int = 0
     uncorrectables: int = 0
     docsis_version: str = "3.0"
@@ -28,7 +27,6 @@ class DownstreamChannel(BaseModel):
         if self.power_dbmv is None:
             return Severity.UNKNOWN
         from config import settings
-
         if settings.DS_POWER_MIN <= self.power_dbmv <= settings.DS_POWER_MAX:
             return Severity.OK
         return Severity.WARN
@@ -38,7 +36,6 @@ class DownstreamChannel(BaseModel):
         if self.snr_db is None:
             return Severity.UNKNOWN
         from config import settings
-
         if self.snr_db >= settings.SNR_WARN_DB:
             return Severity.OK
         if self.snr_db >= settings.SNR_CRIT_DB:
@@ -48,7 +45,6 @@ class DownstreamChannel(BaseModel):
     @property
     def uncorrectable_status(self) -> Severity:
         from config import settings
-
         if self.uncorrectables >= settings.UNCORRECTABLE_CRIT:
             return Severity.CRITICAL
         if self.uncorrectables >= settings.UNCORRECTABLE_WARN:
@@ -57,10 +53,10 @@ class DownstreamChannel(BaseModel):
 
 
 class UpstreamChannel(BaseModel):
-    channel_id: int | None = None
-    frequency_hz: int | None = None
-    power_dbmv: float | None = None
-    channel_type: str | None = None
+    channel_id: Optional[int] = None
+    frequency_hz: Optional[int] = None
+    power_dbmv: Optional[float] = None
+    channel_type: Optional[str] = None
     t1_timeouts: int = 0
     t2_timeouts: int = 0
     t3_timeouts: int = 0
@@ -72,7 +68,6 @@ class UpstreamChannel(BaseModel):
         if self.power_dbmv is None:
             return Severity.UNKNOWN
         from config import settings
-
         if settings.US_POWER_MIN <= self.power_dbmv <= settings.US_POWER_MAX:
             return Severity.OK
         return Severity.WARN
@@ -80,7 +75,6 @@ class UpstreamChannel(BaseModel):
     @property
     def timeout_severity(self) -> Severity:
         from config import settings
-
         if (self.t3_timeouts + self.t4_timeouts) >= settings.T3_T4_CRIT_COUNT:
             return Severity.CRITICAL
         return Severity.OK
@@ -88,7 +82,7 @@ class UpstreamChannel(BaseModel):
 
 class EventLogEntry(BaseModel):
     ts: str
-    priority: int | None = None
+    priority: Optional[int] = None
     severity: str = "NOTICE"
     message: str
 
@@ -96,8 +90,8 @@ class EventLogEntry(BaseModel):
 class RouterSnapshot(BaseModel):
     polled_at: datetime
     router_up: bool
-    wan_ip: str | None = None
-    uptime_secs: int | None = None
-    downstream: list[DownstreamChannel] = []
-    upstream: list[UpstreamChannel] = []
-    event_logs: list[EventLogEntry] = []
+    wan_ip: Optional[str] = None
+    uptime_secs: Optional[int] = None
+    downstream: List[DownstreamChannel] = []
+    upstream: List[UpstreamChannel] = []
+    event_logs: List[EventLogEntry] = []

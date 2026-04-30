@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional
 
 import httpx
+import urllib3
 from bs4 import BeautifulSoup
 from tenacity import (
     retry, stop_after_attempt, wait_exponential,
@@ -18,6 +19,11 @@ import structlog
 
 from config import settings
 from models import RouterSnapshot, DownstreamChannel, UpstreamChannel, EventLogEntry
+
+# The Hub 5 uses a self-signed certificate — suppress the per-request warning
+# that urllib3 would otherwise emit. This is intentional: the device is
+# LAN-only (192.168.100.1 / 192.168.0.1) so there is no MITM risk.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 log = structlog.get_logger()
 
@@ -35,10 +41,19 @@ EP_LOG_ALT    = "/network_log.asp"
 
 
 def _make_client() -> httpx.AsyncClient:
+    """
+    Build the shared httpx client for all Hub 5 requests.
+
+    SSL verification is disabled (verify=False) because the Hub 5 firmware
+    serves HTTPS with a self-signed certificate that cannot be added to the
+    system trust store from inside the container. This is safe for a
+    LAN-only management interface.
+    """
     kwargs: dict = dict(
         base_url=settings.router_base_url,
         timeout=settings.REQUEST_TIMEOUT,
         follow_redirects=True,
+        verify=False,
         headers={"User-Agent": "DOCSIS-Monitor/1.0"},
     )
     if settings.ROUTER_USER and settings.ROUTER_PASS:

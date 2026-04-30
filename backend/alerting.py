@@ -1,5 +1,5 @@
 """
-Alert engine: evaluates thresholds, debounces, fires webhooks/email.
+Alert engine: evaluates thresholds, debounces, fires webhooks + optional email.
 """
 import asyncio
 import json
@@ -18,7 +18,7 @@ from models import RouterSnapshot
 
 log = structlog.get_logger()
 
-# In-memory debounce map: alert_key -> last_fired
+# In-memory debounce map: alert_key -> last_fired datetime
 _debounce: dict[str, datetime] = {}
 
 
@@ -83,7 +83,7 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
     else:
         await _resolve_alert(db, "router_down")
 
-    # Downstream
+    # --- Downstream checks ---
     for ch in snap.downstream:
         cid = ch.channel_id or 0
 
@@ -92,20 +92,20 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
                 aid = await _open_alert(
                     db, f"ds_snr_crit_{cid}", "critical", cid, "snr_db",
                     ch.snr_db, settings.SNR_CRIT_DB,
-                    f"DS ch{cid}: SNR {ch.snr_db:.1f} dB < critical {settings.SNR_CRIT_DB} dB",
+                    f"DS ch{cid}: SNR {ch.snr_db:.1f} dB < critical threshold {settings.SNR_CRIT_DB} dB",
                 )
                 if aid:
                     fired.append({"id": aid, "severity": "critical",
-                        "message": f"DS ch{cid} SNR {ch.snr_db:.1f} dB"})
+                        "message": f"DS ch{cid} SNR {ch.snr_db:.1f} dB (critical)"})
             elif ch.snr_db < settings.SNR_WARN_DB:
                 aid = await _open_alert(
                     db, f"ds_snr_warn_{cid}", "warn", cid, "snr_db",
                     ch.snr_db, settings.SNR_WARN_DB,
-                    f"DS ch{cid}: SNR {ch.snr_db:.1f} dB < warn {settings.SNR_WARN_DB} dB",
+                    f"DS ch{cid}: SNR {ch.snr_db:.1f} dB < warning threshold {settings.SNR_WARN_DB} dB",
                 )
                 if aid:
                     fired.append({"id": aid, "severity": "warn",
-                        "message": f"DS ch{cid} SNR {ch.snr_db:.1f} dB"})
+                        "message": f"DS ch{cid} SNR {ch.snr_db:.1f} dB (warning)"})
             else:
                 await _resolve_alert(db, f"ds_snr_crit_{cid}")
                 await _resolve_alert(db, f"ds_snr_warn_{cid}")
@@ -120,15 +120,16 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
                 )
                 if aid:
                     fired.append({"id": aid, "severity": "warn",
-                        "message": f"DS ch{cid} power {ch.power_dbmv:.1f} dBmV OOR"})
+                        "message": f"DS ch{cid} power {ch.power_dbmv:.1f} dBmV out-of-range"})
             else:
                 await _resolve_alert(db, f"ds_power_{cid}")
 
-        uncorr_sev = None
         if ch.uncorrectables >= settings.UNCORRECTABLE_CRIT:
             uncorr_sev = "critical"
         elif ch.uncorrectables >= settings.UNCORRECTABLE_WARN:
             uncorr_sev = "warn"
+        else:
+            uncorr_sev = None
 
         if uncorr_sev:
             aid = await _open_alert(
@@ -143,7 +144,7 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
         else:
             await _resolve_alert(db, f"ds_uncorr_{cid}")
 
-    # Upstream
+    # --- Upstream checks ---
     for ch in snap.upstream:
         cid = ch.channel_id or 0
 
@@ -157,7 +158,7 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
                 )
                 if aid:
                     fired.append({"id": aid, "severity": "warn",
-                        "message": f"US ch{cid} power {ch.power_dbmv:.1f} dBmV OOR"})
+                        "message": f"US ch{cid} power {ch.power_dbmv:.1f} dBmV out-of-range"})
             else:
                 await _resolve_alert(db, f"us_power_{cid}")
 
@@ -170,7 +171,7 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
             )
             if aid:
                 fired.append({"id": aid, "severity": "critical",
-                    "message": f"US ch{cid} T3/T4: {t3t4}"})
+                    "message": f"US ch{cid} T3/T4 timeouts: {t3t4}"})
         else:
             await _resolve_alert(db, f"us_t3t4_{cid}")
 
@@ -179,9 +180,9 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
     return fired
 
 
-# Notification dispatch
+# ─── Notification payloads ────────────────────────────────────────────────────
 
-def _webhook_payload(snap: RouterSnapshot, alerts: list[dict]) -> dict:
+def _generic_payload(snap: RouterSnapshot, alerts: list[dict]) -> dict:
     return {
         "source": "docsis-monitor",
         "router_ip": settings.ROUTER_IP,
@@ -201,7 +202,7 @@ def _slack_payload(snap: RouterSnapshot, alerts: list[dict]) -> dict:
     return {
         "attachments": [{
             "color": color,
-            "title": f"🚨 DOCSIS Monitor — {len(alerts)} alert(s)",
+            "title": f":rotating_light: DOCSIS Monitor — {len(alerts)} alert(s)",
             "text": lines,
             "footer": f"Router {settings.ROUTER_IP} | "
                       f"{snap.polled_at.strftime('%Y-%m-%d %H:%M UTC')}",
@@ -235,13 +236,13 @@ async def _send_webhook(url: str, snap: RouterSnapshot, alerts: list[dict]):
     elif "discord.com" in url:
         payload = _discord_payload(snap, alerts)
     else:
-        payload = _webhook_payload(snap, alerts)
+        payload = _generic_payload(snap, alerts)
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             (await client.post(url, json=payload)).raise_for_status()
-        log.info("alerting.webhook_sent", url=url[:50])
+        log.info("alerting.webhook_sent", url=url[:60])
     except Exception as e:
-        log.error("alerting.webhook_failed", url=url[:50], error=str(e))
+        log.error("alerting.webhook_failed", url=url[:60], error=str(e))
 
 
 async def _send_email(snap: RouterSnapshot, alerts: list[dict]):
@@ -263,6 +264,7 @@ async def _send_email(snap: RouterSnapshot, alerts: list[dict]):
             if settings.SMTP_USER:
                 srv.login(settings.SMTP_USER, settings.SMTP_PASS or "")
             srv.send_message(msg)
+        log.info("alerting.email_sent", to=settings.SMTP_TO)
     except Exception as e:
         log.error("alerting.email_failed", error=str(e))
 

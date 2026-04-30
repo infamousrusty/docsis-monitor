@@ -1,6 +1,6 @@
 """
 Hub 5 scraper — handles both router mode (192.168.0.1) and modem mode (192.168.100.1).
-Endpoints discovered via community reverse engineering of VM firmware.
+Endpoints discovered via community reverse engineering of VM Hub 5 firmware.
 Gracefully degrades if any endpoint is unavailable.
 """
 import asyncio
@@ -21,16 +21,21 @@ from models import RouterSnapshot, DownstreamChannel, UpstreamChannel, EventLogE
 
 log = structlog.get_logger()
 
-# Discovered Hub 5 CGI endpoints (modem + router mode)
+# Hub 5 CGI endpoints (modem + router mode)
 EP_DOWNSTREAM = "/cgi-bin/VmRouterStatusDownstreamCfgCgi"
 EP_UPSTREAM   = "/cgi-bin/VmRouterStatusUpstreamCfgCgi"
 EP_EVENT_LOG  = "/cgi-bin/VmRouterEventLogCgi"
 EP_WAN        = "/cgi-bin/VmRouterStatusWanCgi"
 EP_STATUS     = "/cgi-bin/VmRouterStatusCgi"
 
+# Fallback endpoints for alternate firmware versions
+EP_DS_ALT     = "/docsis_status.asp"
+EP_US_ALT     = "/docsis_status.asp"
+EP_LOG_ALT    = "/network_log.asp"
+
 
 def _make_client() -> httpx.AsyncClient:
-    kwargs = dict(
+    kwargs: dict = dict(
         base_url=settings.router_base_url,
         timeout=settings.REQUEST_TIMEOUT,
         follow_redirects=True,
@@ -74,14 +79,14 @@ def _col_values(soup: BeautifulSoup, label: str) -> list[str]:
 
 def _sf(val: str) -> Optional[float]:
     try:
-        return float(val.replace("N/A", "").strip())
+        return float(re.sub(r"[^\d.\-]", "", val.replace("N/A", "").strip()))
     except (ValueError, AttributeError):
         return None
 
 
 def _si(val: str) -> Optional[int]:
     try:
-        return int(val.replace("N/A", "").strip())
+        return int(re.sub(r"[^\d]", "", val.replace("N/A", "").strip()))
     except (ValueError, AttributeError):
         return None
 
@@ -92,15 +97,15 @@ def _g(lst: list, idx: int) -> str:
 
 def parse_downstream(html: str) -> list[DownstreamChannel]:
     soup = BeautifulSoup(html, "lxml")
-    chan_ids   = _col_values(soup, "Channel ID")
-    freqs      = _col_values(soup, "Frequency (Hz)")
-    powers     = _col_values(soup, "Power Level (dBmV)")
-    snrs       = _col_values(soup, "RxMER (dB)")
-    mods       = _col_values(soup, "Modulation")
-    locks      = _col_values(soup, "Lock Status")
-    corrected  = _col_values(soup, "Corrected") or _col_values(soup, "Pre RS Errors")
-    uncorrect  = _col_values(soup, "Uncorrectables") or _col_values(soup, "Post RS Errors")
-    chan_types  = _col_values(soup, "Channel Type")
+    chan_ids  = _col_values(soup, "Channel ID")
+    freqs     = _col_values(soup, "Frequency (Hz)")
+    powers    = _col_values(soup, "Power Level (dBmV)")
+    snrs      = _col_values(soup, "RxMER (dB)") or _col_values(soup, "SNR (dB)")
+    mods      = _col_values(soup, "Modulation")
+    locks     = _col_values(soup, "Lock Status")
+    corrected = _col_values(soup, "Corrected") or _col_values(soup, "Pre RS Errors")
+    uncorr    = _col_values(soup, "Uncorrectables") or _col_values(soup, "Post RS Errors")
+    chan_types = _col_values(soup, "Channel Type")
 
     n = max(len(chan_ids), len(powers), 1)
     channels = []
@@ -114,7 +119,7 @@ def parse_downstream(html: str) -> list[DownstreamChannel]:
             modulation=_g(mods, i) or None,
             lock_status=_g(locks, i) or None,
             corrected=_si(_g(corrected, i)) or 0,
-            uncorrectables=_si(_g(uncorrect, i)) or 0,
+            uncorrectables=_si(_g(uncorr, i)) or 0,
             docsis_version=docsis,
         ))
     return channels
@@ -180,12 +185,12 @@ def parse_event_log(html: str) -> list[EventLogEntry]:
 def parse_wan_info(html: str) -> dict:
     soup = BeautifulSoup(html, "lxml")
     info: dict = {"wan_ip": None, "uptime_secs": None}
-    for label in ("WAN IP Address", "IP Address"):
+    for label in ("WAN IP Address", "IP Address", "IPv4 Address"):
         row = _col_values(soup, label)
         if row:
             info["wan_ip"] = row[0]
             break
-    for label in ("System Up Time", "Uptime"):
+    for label in ("System Up Time", "Uptime", "System Uptime"):
         row = _col_values(soup, label)
         if row:
             raw = row[0]
@@ -216,7 +221,7 @@ async def poll_router() -> RouterSnapshot:
         polled_at=polled_at,
         router_up=router_up,
         downstream=parse_downstream(ds_html) if ds_html else [],
-        upstream=parse_upstream(us_html)     if us_html else [],
+        upstream=parse_upstream(us_html) if us_html else [],
         event_logs=parse_event_log(log_html) if log_html else [],
         **(parse_wan_info(wan_html) if wan_html else {}),
     )

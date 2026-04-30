@@ -120,6 +120,8 @@ async def run_poll_cycle():
         log.error("poll_cycle.failed", error=str(e), exc_info=settings.DEBUG)
 
 
+# ─── Health & Metrics ─────────────────────────────────────────────────────────
+
 @app.get("/health")
 async def health():
     return {
@@ -135,10 +137,12 @@ async def prometheus_metrics():
     return Response(content=data, media_type=ct)
 
 
+# ─── API v1 ───────────────────────────────────────────────────────────────────
+
 @app.get("/api/v1/overview", dependencies=[Depends(optional_auth)])
 async def overview():
     if not _latest_snapshot:
-        raise HTTPException(503, "Poll pending")
+        raise HTTPException(503, "Poll pending — check router connectivity")
     snap = _latest_snapshot
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row

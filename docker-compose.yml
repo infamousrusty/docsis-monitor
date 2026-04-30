@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
     environment:
       - ROUTER_IP=${ROUTER_IP:-192.168.100.1}
-      - ROUTER_SCHEME=${ROUTER_SCHEME:-http}
+      - ROUTER_SCHEME=${ROUTER_SCHEME:-https}
       - POLL_INTERVAL=${POLL_INTERVAL:-30}
       - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-10}
       - REQUEST_RETRIES=${REQUEST_RETRIES:-3}
@@ -102,7 +102,9 @@ services:
       - "--storage.tsdb.retention.time=90d"
       - "--web.enable-lifecycle"
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Mount the directory, not the file directly — file bind-mounts are
+      # unreliable in Portainer git stacks (Docker pre-creates paths as dirs).
+      - ./prometheus:/etc/prometheus:ro
       - prometheus_data:/prometheus
     networks:
       - docsis_net

@@ -9,7 +9,6 @@ from datetime import datetime
 from typing import Optional
 
 import httpx
-import urllib3
 from bs4 import BeautifulSoup
 from tenacity import (
     retry, stop_after_attempt, wait_exponential,

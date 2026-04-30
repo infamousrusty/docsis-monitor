@@ -23,7 +23,6 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
 
     ph = ",".join("?" * len(snap_ids))
 
-    # SNR per channel
     async with db.execute(
         f"""SELECT channel_id, AVG(snr_db), MIN(snr_db), MAX(snr_db)
             FROM downstream_channels
@@ -45,7 +44,6 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
                     "detail": f"Channel {cid} avg SNR {avg_s:.1f} dB — degraded",
                 })
 
-    # Power spread / imbalance
     async with db.execute(
         f"""SELECT channel_id, AVG(power_dbmv), MIN(power_dbmv), MAX(power_dbmv)
             FROM downstream_channels
@@ -73,7 +71,6 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
             "detail": f"Power spread across {len(powers)} DS channels: {spread:.1f} dBmV",
         }
 
-    # Uncorrectables
     async with db.execute(
         f"""SELECT channel_id, SUM(uncorrectables)
             FROM downstream_channels
@@ -89,7 +86,6 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
                 "detail": f"Channel {cid}: {total} uncorrectables in last 20 polls",
             })
 
-    # T3/T4
     async with db.execute(
         f"""SELECT channel_id, SUM(t3_timeouts), SUM(t4_timeouts)
             FROM upstream_channels
@@ -106,7 +102,6 @@ async def get_diagnostics(db: aiosqlite.Connection) -> dict:
                 "detail": f"US ch{cid}: T3={t3} T4={t4} — ranging instability",
             })
 
-    # Summary
     if diags["t3t4_warnings"]:
         diags["summary"] = "CRITICAL"
     elif diags["signal_instability"] or (

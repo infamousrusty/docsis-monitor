@@ -83,7 +83,6 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
     else:
         await _resolve_alert(db, "router_down")
 
-    # Downstream
     for ch in snap.downstream:
         cid = ch.channel_id or 0
 
@@ -143,7 +142,6 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
         else:
             await _resolve_alert(db, f"ds_uncorr_{cid}")
 
-    # Upstream
     for ch in snap.upstream:
         cid = ch.channel_id or 0
 
@@ -179,8 +177,6 @@ async def evaluate_snapshot(db: aiosqlite.Connection, snap: RouterSnapshot) -> l
     return fired
 
 
-# Notification dispatch
-
 def _webhook_payload(snap: RouterSnapshot, alerts: list[dict]) -> dict:
     return {
         "source": "docsis-monitor",
@@ -201,7 +197,7 @@ def _slack_payload(snap: RouterSnapshot, alerts: list[dict]) -> dict:
     return {
         "attachments": [{
             "color": color,
-            "title": f"🚨 DOCSIS Monitor — {len(alerts)} alert(s)",
+            "title": f"DOCSIS Monitor — {len(alerts)} alert(s)",
             "text": lines,
             "footer": f"Router {settings.ROUTER_IP} | "
                       f"{snap.polled_at.strftime('%Y-%m-%d %H:%M UTC')}",
@@ -218,7 +214,7 @@ def _discord_payload(snap: RouterSnapshot, alerts: list[dict]) -> dict:
     return {
         "username": "DOCSIS Monitor",
         "embeds": [{
-            "title": f"{'🔴' if crit else '🟡'} DOCSIS Alert — {len(alerts)} issue(s)",
+            "title": f"{'DOCSIS CRITICAL' if crit else 'DOCSIS WARNING'} — {len(alerts)} issue(s)",
             "color": 16711680 if crit else 16753920,
             "description": "\n".join(
                 f"**[{a['severity'].upper()}]** {a['message']}" for a in alerts

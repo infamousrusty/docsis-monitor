@@ -22,7 +22,6 @@ from models import RouterSnapshot, DownstreamChannel, UpstreamChannel, EventLogE
 # The Hub 5 uses a self-signed certificate — suppress the per-request warning
 # that urllib3 would otherwise emit. This is intentional: the device is
 # LAN-only (192.168.100.1 / 192.168.0.1) so there is no MITM risk.
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 log = structlog.get_logger()
 

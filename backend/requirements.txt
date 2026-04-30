@@ -11,3 +11,4 @@ python-dotenv==1.0.1
 prometheus-client==0.21.0
 structlog==24.4.0
 tenacity==9.0.0
+urllib3==2.2.3

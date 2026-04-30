@@ -1,13 +1,16 @@
 global:
-  scrape_interval: 30s
-  evaluation_interval: 30s
+  scrape_interval:     15s
+  evaluation_interval: 15s
   external_labels:
     monitor: 'docsis-monitor'
 
 scrape_configs:
-  - job_name: 'docsis_app'
+  - job_name: 'docsis-app'
     static_configs:
       - targets: ['app:8000']
     metrics_path: /metrics
     scrape_interval: 30s
-    scrape_timeout: 10s
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

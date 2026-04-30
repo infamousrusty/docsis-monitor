@@ -1,6 +1,4 @@
-# Grafana datasource provisioning — auto-configured on container start
 apiVersion: 1
-
 datasources:
   - name: Prometheus
     type: prometheus
@@ -8,7 +6,3 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     editable: false
-    jsonData:
-      timeInterval: "30s"
-      queryTimeout: "60s"
-      httpMethod: POST
